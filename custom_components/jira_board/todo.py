@@ -1,0 +1,168 @@
+"""Todo platform for Jira Board - one column (Jira status) per todo.* entity.
+
+Design note on move vs. delete semantics: a Kanban-style drag in a frontend
+like Hakanban is implemented as "remove item from source list, add it to
+target list" - i.e. a delete call on one entity followed by a create call on
+another, with no reliable signal tying the two together or fixing their
+order. Rather than guess, `async_create_todo_item` is treated as the sole
+authoritative "this issue is now in this column" signal (it transitions the
+Jira issue, or creates a new one if the key is unseen), and
+`async_delete_todo_items` is intentionally a no-op against Jira. Making
+delete destructive (e.g. auto-transitioning to Done) risks silently closing
+an issue that was merely being repositioned. The coordinator's next refresh
+is always the final source of truth, so a delete with no matching create
+elsewhere just has the card reappear rather than something being lost.
+
+Design note on identifying moves: HA's standard `todo` create path
+(`todo.add_item`, and every frontend built on it, confirmed against
+Hakanban's own list/card model) does not let the caller choose `uid` - the
+entity always assigns it. So a drag-move can't be recognized by uid staying
+stable across the delete+create pair; it never does. Every card's summary
+is written out as "KEY  text" (see `todo_items` below) specifically so the
+Jira key can instead be recovered from the *summary text*, which - being
+the visible card content - is what actually survives a drag unchanged.
+"""
+from __future__ import annotations
+
+import logging
+import re
+
+from homeassistant.components.todo import (
+    TodoItem,
+    TodoItemStatus,
+    TodoListEntity,
+    TodoListEntityFeature,
+)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .api import JiraApiError
+from .const import COLUMNS, COLUMN_SLUGS, CONF_DEFAULT_PROJECT, DOMAIN
+from .coordinator import JiraBoardCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+# Matches the "KEY  " prefix this integration writes at the start of every
+# card summary, e.g. "HUG-38  Bidet" -> key="HUG-38".
+_KEY_PREFIX_RE = re.compile(r"^([A-Z][A-Z0-9]*-\d+)\s+")
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    coordinator: JiraBoardCoordinator = hass.data[DOMAIN][entry.entry_id]
+    default_project = entry.data[CONF_DEFAULT_PROJECT]
+    async_add_entities(
+        JiraBoardColumn(coordinator, entry.entry_id, column, default_project)
+        for column in COLUMNS
+    )
+
+
+class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
+    """One Kanban column (= one Jira status) as a todo list."""
+
+    _attr_has_entity_name = True
+    _attr_supported_features = (
+        TodoListEntityFeature.CREATE_TODO_ITEM
+        | TodoListEntityFeature.DELETE_TODO_ITEM
+        | TodoListEntityFeature.UPDATE_TODO_ITEM
+    )
+
+    def __init__(
+        self,
+        coordinator: JiraBoardCoordinator,
+        entry_id: str,
+        column: str,
+        default_project: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._column = column
+        self._default_project = default_project
+        self._attr_unique_id = f"{entry_id}_{COLUMN_SLUGS[column]}"
+        self._attr_name = column
+        self._attr_icon = "mdi:card-multiple-outline"
+
+    @property
+    def todo_items(self) -> list[TodoItem]:
+        issues = self.coordinator.data.get(self._column, [])
+        done = self._column == "Done"
+        return [
+            TodoItem(
+                uid=i["key"],
+                summary=f"{i['key']}  {i['summary']}",
+                status=TodoItemStatus.COMPLETED if done else TodoItemStatus.NEEDS_ACTION,
+                description=i["project"],
+            )
+            for i in issues
+        ]
+
+    def _known_columns_for(self, key: str) -> list[str]:
+        """Which column(s) the coordinator currently thinks this key is in."""
+        return [
+            col
+            for col, issues in self.coordinator.data.items()
+            if any(i["key"] == key for i in issues)
+        ]
+
+    async def async_create_todo_item(self, item: TodoItem) -> None:
+        client = self.coordinator.client
+        summary = item.summary or "Neue Aufgabe"
+        match = _KEY_PREFIX_RE.match(summary)
+        key = match.group(1) if match else None
+        existing_columns = self._known_columns_for(key) if key else []
+
+        if key and existing_columns and self._column not in existing_columns:
+            # Known issue reappearing (by its "KEY  text" prefix) in a
+            # different column -> this is a drag-move. Transition the real
+            # Jira issue to match.
+            moved = await client.transition_to_status(key, self._column)
+            if not moved:
+                _LOGGER.warning(
+                    "Jira workflow rejected moving %s to '%s' - reverting on next refresh",
+                    key,
+                    self._column,
+                )
+                await self.coordinator.async_request_refresh()
+                return
+            self.coordinator.note_local_move(key, self._column)
+            await self.coordinator.async_request_refresh()
+            return
+
+        if key and self._column in existing_columns:
+            # Recreated in the *same* column it's already in (e.g. a
+            # refresh artifact) - nothing to do.
+            return
+
+        # No recognizable "KEY  " prefix -> a genuinely new card was typed
+        # directly on the board, create a real Jira issue for it.
+        try:
+            new_key = await client.create_issue(self._default_project, summary)
+        except JiraApiError as err:
+            _LOGGER.error("Konnte kein Jira-Issue für '%s' anlegen: %s", summary, err)
+            return
+        if self._column != COLUMNS[0]:
+            await client.transition_to_status(new_key, self._column)
+        self.coordinator.note_local_move(new_key, self._column)
+        await self.coordinator.async_request_refresh()
+
+    async def async_update_todo_item(self, item: TodoItem) -> None:
+        # Only an explicit checkbox-complete is unambiguous enough to act
+        # on; summary/description edits aren't synced back in this version.
+        if item.uid and item.status == TodoItemStatus.COMPLETED:
+            client = self.coordinator.client
+            if await client.transition_to_status(item.uid, "Done"):
+                self.coordinator.note_local_move(item.uid, "Done")
+                await self.coordinator.async_request_refresh()
+
+    async def async_delete_todo_items(self, uids: list[str]) -> None:
+        # Intentional no-op against Jira - see module docstring. Just
+        # refresh so any card that's genuinely gone (deleted upstream)
+        # drops out on its own.
+        _LOGGER.debug(
+            "Delete on column '%s' for %s - not transitioning Jira, see module docstring",
+            self._column,
+            uids,
+        )
+        await self.coordinator.async_request_refresh()

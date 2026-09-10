@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Jira Board einrichten",
+        "data": {
+          "base_url": "Jira-Basis-URL",
+          "email": "E-Mail",
+          "api_token": "API-Token",
+          "projects": "Projekte (Komma-getrennt, z.B. FAM,HA,HUG)",
+          "default_project": "Standard-Projekt für neue Karten"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Anmeldung fehlgeschlagen - E-Mail/Token prüfen",
+      "cannot_connect": "Verbindung zu Jira fehlgeschlagen"
+    },
+    "abort": {
+      "already_configured": "Dieser Jira-Account ist bereits eingerichtet"
+    }
+  }
+}

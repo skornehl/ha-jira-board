@@ -1,0 +1,12 @@
+{
+  "domain": "jira_board",
+  "name": "Jira Board",
+  "codeowners": ["@skornehl"],
+  "config_flow": true,
+  "documentation": "https://github.com/skornehl/homeassistant-config",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/skornehl/homeassistant-config/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
