@@ -33,10 +33,12 @@ The config flow is three steps:
 3. **Default project** - which of the projects picked in step 2 a *brand
    new* card typed directly on the board gets created in.
 
-To change the tracked projects or default project later, use the
-integration's **Configure** button (Settings → Devices & Services → Jira
-Board → Configure) - same live project picker as initial setup, takes
-effect immediately, no restart or re-adding needed.
+To change the tracked projects, the default project, or **rotate the API
+token**, use the integration's **Configure** button (Settings → Devices &
+Services → Jira Board → Configure) - two steps: credentials (leave the
+token field blank to keep the current one), then the same live project
+picker as initial setup. Takes effect immediately, no restart or
+re-adding needed.
 
 ## Adding the board to a dashboard
 

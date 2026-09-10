@@ -44,17 +44,18 @@ CARD_URL_PATH = f"/{DOMAIN}_static/jira-board-card.js"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # `options` (set later via the options flow - including a rotated API
+    # token) take precedence over the original `data` from initial setup -
+    # this is the one place that resolution happens; the coordinator/todo
+    # platform read the already-resolved values from the coordinator, not
+    # the entry, from here on.
     session = async_get_clientsession(hass)
     client = JiraClient(
         session,
-        entry.data[CONF_BASE_URL],
-        entry.data[CONF_EMAIL],
-        entry.data[CONF_API_TOKEN],
+        entry.options.get(CONF_BASE_URL, entry.data[CONF_BASE_URL]),
+        entry.options.get(CONF_EMAIL, entry.data[CONF_EMAIL]),
+        entry.options.get(CONF_API_TOKEN, entry.data[CONF_API_TOKEN]),
     )
-    # `options` (set later via the options flow) take precedence over the
-    # original `data` from initial setup - this is the one place that
-    # resolution happens; the coordinator/todo platform read the already-
-    # resolved values from the coordinator, not the entry, from here on.
     coordinator = JiraBoardCoordinator(
         hass,
         client,

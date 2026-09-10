@@ -68,6 +68,22 @@ def _default_project_schema(chosen_keys: list[str]) -> vol.Schema:
     )
 
 
+def _credentials_schema(current_base_url: str, current_email: str) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_BASE_URL, default=current_base_url): str,
+            vol.Required(CONF_EMAIL, default=current_email): str,
+            # Deliberately *not* pre-filled with the real current token -
+            # the point of a settings screen isn't to redisplay a live
+            # secret when the user only opened it to change the project
+            # list, say. Left blank = keep the existing token.
+            vol.Optional(CONF_API_TOKEN, default=""): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+        }
+    )
+
+
 def _options_schema(
     all_projects: list[dict[str, str]], current_projects: list[str], current_default: str
 ) -> vol.Schema:
@@ -183,32 +199,59 @@ class JiraBoardConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class JiraBoardOptionsFlow(OptionsFlow):
-    """Change which projects are tracked / the default project later,
-    without removing and re-adding the whole integration. Writes to the
-    config entry's `options`, which take precedence over the original
-    `data` from initial setup wherever they're read (see __init__.py)."""
+    """Update credentials and/or change which projects are tracked / the
+    default project later, without removing and re-adding the whole
+    integration. Writes to the config entry's `options`, which take
+    precedence over the original `data` from initial setup wherever
+    they're read (see __init__.py)."""
+
+    def __init__(self) -> None:
+        self._data: dict[str, Any] = {}
+        self._available_projects: list[dict[str, str]] = []
+
+    def _current(self, key: str) -> Any:
+        return self.config_entry.options.get(key, self.config_entry.data[key])
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        session = async_get_clientsession(self.hass)
-        client = JiraClient(
-            session,
-            self.config_entry.data[CONF_BASE_URL],
-            self.config_entry.data[CONF_EMAIL],
-            self.config_entry.data[CONF_API_TOKEN],
-        )
-        try:
-            all_projects = await client.list_projects()
-        except JiraApiError:
-            return self.async_abort(reason="cannot_connect")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            # Blank token field = keep using the one already saved.
+            token = user_input.get(CONF_API_TOKEN) or self._current(CONF_API_TOKEN)
+            session = async_get_clientsession(self.hass)
+            client = JiraClient(session, user_input[CONF_BASE_URL], user_input[CONF_EMAIL], token)
+            try:
+                await client.test_auth()
+                self._available_projects = await client.list_projects()
+            except JiraApiError:
+                errors["base"] = "invalid_auth"
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error validating Jira credentials")
+                errors["base"] = "cannot_connect"
 
-        current_projects = self.config_entry.options.get(
-            CONF_PROJECTS, self.config_entry.data[CONF_PROJECTS]
+            if not errors and not self._available_projects:
+                errors["base"] = "no_projects_found"
+
+            if not errors:
+                self._data[CONF_BASE_URL] = user_input[CONF_BASE_URL]
+                self._data[CONF_EMAIL] = user_input[CONF_EMAIL]
+                self._data[CONF_API_TOKEN] = token
+                return await self.async_step_projects()
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_credentials_schema(
+                self._current(CONF_BASE_URL), self._current(CONF_EMAIL)
+            ),
+            errors=errors,
         )
-        current_default = self.config_entry.options.get(
-            CONF_DEFAULT_PROJECT, self.config_entry.data[CONF_DEFAULT_PROJECT]
-        )
+
+    async def async_step_projects(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        current_projects = self._current(CONF_PROJECTS)
+        current_default = self._current(CONF_DEFAULT_PROJECT)
 
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -217,12 +260,16 @@ class JiraBoardOptionsFlow(OptionsFlow):
             elif user_input[CONF_DEFAULT_PROJECT] not in user_input[CONF_PROJECTS]:
                 errors["base"] = "default_not_in_projects"
             else:
-                return self.async_create_entry(data=user_input)
+                self._data[CONF_PROJECTS] = user_input[CONF_PROJECTS]
+                self._data[CONF_DEFAULT_PROJECT] = user_input[CONF_DEFAULT_PROJECT]
+                return self.async_create_entry(data=self._data)
             current_projects = user_input[CONF_PROJECTS]
             current_default = user_input[CONF_DEFAULT_PROJECT]
 
         return self.async_show_form(
-            step_id="init",
-            data_schema=_options_schema(all_projects, current_projects, current_default),
+            step_id="projects",
+            data_schema=_options_schema(
+                self._available_projects, current_projects, current_default
+            ),
             errors=errors,
         )
