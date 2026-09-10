@@ -59,6 +59,27 @@ class JiraClient:
         """Verify credentials, return the authenticated user's profile."""
         return await self._request("GET", "/rest/api/3/myself")
 
+    async def list_projects(self) -> list[dict[str, str]]:
+        """List projects visible to this account, for the config flow's picker.
+
+        A single page (up to 200) is plenty for how this integration is
+        actually used - personal/small-team Jira sites, not an enterprise
+        instance with hundreds of projects - so pagination isn't
+        implemented; `isLast` is checked only to log if it was truncated.
+        """
+        data = await self._request(
+            "GET", "/rest/api/3/project/search?maxResults=200&orderBy=key"
+        )
+        if not data.get("isLast", True):
+            _LOGGER.warning(
+                "More than %d projects visible - only the first page is offered "
+                "in the setup dialog",
+                len(data.get("values", [])),
+            )
+        return [
+            {"key": p["key"], "name": p["name"]} for p in data.get("values", [])
+        ]
+
     async def search_issues(
         self, jql: str, fields: list[str], max_results: int = 200
     ) -> list[dict[str, Any]]:

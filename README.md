@@ -23,15 +23,18 @@ no manual Lovelace resource to add.
 You'll need a classic Atlassian API token (**not** an OAuth app token) -
 create one at <https://id.atlassian.com/manage-profile/security/api-tokens>.
 
-The config flow asks for:
+The config flow is three steps:
 
-| Field | Meaning |
-|---|---|
-| Jira base URL | e.g. `https://yourcompany.atlassian.net` |
-| Email | your Atlassian account email |
-| API token | the token from the link above |
-| Projects | comma-separated project keys to pull issues from, e.g. `HA,FAM` |
-| Default project | which project a *brand new* card typed directly on the board gets created in |
+1. **Credentials** - Jira base URL (e.g. `https://yourcompany.atlassian.net`),
+   your Atlassian account email, and the API token from the link above.
+2. **Projects** - a multi-select list of every project your account can see,
+   fetched live from Jira (nothing to type/guess) - pick which ones the
+   board should pull issues from.
+3. **Default project** - which of the projects picked in step 2 a *brand
+   new* card typed directly on the board gets created in.
+
+Changing the tracked projects later currently means removing and re-adding
+the integration (config entry data only, doesn't touch anything in Jira).
 
 ## Adding the board to a dashboard
 

@@ -3,10 +3,10 @@
   "name": "Jira Board",
   "codeowners": ["@skornehl"],
   "config_flow": true,
-  "documentation": "https://github.com/skornehl/homeassistant-config",
+  "documentation": "https://github.com/skornehl/ha-jira-board",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/skornehl/homeassistant-config/issues",
+  "issue_tracker": "https://github.com/skornehl/ha-jira-board/issues",
   "requirements": [],
-  "version": "1.0.0"
+  "version": "1.1.0"
 }
