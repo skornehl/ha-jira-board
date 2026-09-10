@@ -24,6 +24,7 @@ the visible card content - is what actually survives a drag unchanged.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 
@@ -68,6 +69,12 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
         TodoListEntityFeature.CREATE_TODO_ITEM
         | TodoListEntityFeature.DELETE_TODO_ITEM
         | TodoListEntityFeature.UPDATE_TODO_ITEM
+        # Lets a *new-card* create call pass a target project override in
+        # `description` (see async_create_todo_item) - unrelated to how
+        # `todo_items` below uses `description` for epic/project metadata
+        # on reads, that's a separate direction and never collides since a
+        # brand new card has no prior description of its own yet.
+        | TodoListEntityFeature.SET_DESCRIPTION_ON_ITEM
     )
 
     def __init__(
@@ -93,7 +100,17 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
                 uid=i["key"],
                 summary=f"{i['key']}  {i['summary']}",
                 status=TodoItemStatus.COMPLETED if done else TodoItemStatus.NEEDS_ACTION,
-                description=i["project"],
+                # TodoItem has no dedicated field for this, so the frontend
+                # card's extra metadata (project, epic) rides along as a
+                # small JSON blob rather than a plain string - see
+                # jira-board-card.js's "Group by Epic" lanes.
+                description=json.dumps(
+                    {
+                        "project": i["project"],
+                        "epic_key": i.get("epic_key"),
+                        "epic_name": i.get("epic_name"),
+                    }
+                ),
             )
             for i in issues
         ]
@@ -136,9 +153,16 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
             return
 
         # No recognizable "KEY  " prefix -> a genuinely new card was typed
-        # directly on the board, create a real Jira issue for it.
+        # directly on the board, create a real Jira issue for it. A project
+        # filter active in the card can pass its selection through
+        # `description` (only meaningful here, on creation - see the
+        # supported_features comment above) to target that project instead
+        # of the integration-wide default, e.g. for one-tab-per-project use.
+        target_project = self._default_project
+        if item.description and item.description in self.coordinator.projects:
+            target_project = item.description
         try:
-            new_key = await client.create_issue(self._default_project, summary)
+            new_key = await client.create_issue(target_project, summary)
         except JiraApiError as err:
             _LOGGER.error("Konnte kein Jira-Issue für '%s' anlegen: %s", summary, err)
             return

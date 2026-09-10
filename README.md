@@ -46,7 +46,34 @@ columns:
     title: In Review
   - entity: todo.done
     title: Done
+# Optional:
+group_by_epic: false        # start grouped into swim lanes, one per Epic
+project: HA                 # default filter - handy for one dashboard tab per project
+# projects: [HA, FAM]        # (or a fixed set instead of a single default)
+card_id: my-board            # explicit key for the persisted UI state (see below);
+                              # auto-derived from columns/project if omitted
 ```
+
+## Card features
+
+- **Drag and drop** between columns moves the card instantly (optimistic
+  update - the visual move happens immediately, the actual Jira sync runs
+  in the background and reconciles on the next poll if anything goes
+  sideways).
+- **Sorted** ascending by issue number within each column (`HA-9` before
+  `HA-21`), project key as the primary sort key.
+- **Group by Epic** toggle in the toolbar turns the single row of columns
+  into swim lanes, one per Epic plus a "Kein Epic"/"No Epic" catch-all.
+  Purely a client-side layout choice - drag-and-drop works exactly the same
+  across lanes.
+- **Project filter** dropdown, defaulting to the `project`/`projects`
+  config above. Set a different default per dashboard tab to get one board
+  per project.
+- Both the Epic toggle and the project filter are **remembered** across
+  page reloads and HA restarts (`localStorage`, scoped per card instance).
+- **"+ Aufgabe hinzufügen"** input at the bottom of every column creates a
+  brand new Jira issue directly from the board (see below for which
+  project it lands in).
 
 ## How the sync works
 
@@ -62,7 +89,9 @@ columns:
   (the workflow's actual transition ID is resolved dynamically per issue,
   never hardcoded, since it varies by project/workflow).
 - **New cards**: typing a new card with no recognisable `KEY` prefix creates
-  a brand new Jira issue (type `Task`) in the configured default project.
+  a brand new Jira issue (type `Task`). It lands in whichever *single*
+  project the card's filter is currently set to, or the config's
+  `default_project` if the filter is on "Alle"/"All".
 - **Checking a card off**: marking an item complete (the checkbox, not a
   drag) transitions the issue straight to `Done`.
 - **Deleting a card**: intentionally a no-op against Jira. A drag-move is

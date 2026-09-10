@@ -31,6 +31,14 @@ from .coordinator import JiraBoardCoordinator
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["todo"]
 
+# Bump on every change to www/jira-board-card.js. Appended as a query
+# string on the registered URL purely for cache-busting - browsers treat a
+# different URL as a different resource, so this is what actually
+# guarantees a client picks up a new card version instead of possibly
+# serving a stale cached copy despite cache_headers=False below (that flag
+# only affects HA's own response headers, not whatever caching heuristics
+# the browser decides to apply on its own).
+CARD_VERSION = "3"
 CARD_URL_PATH = f"/{DOMAIN}_static/jira-board-card.js"
 
 
@@ -71,7 +79,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL_PATH, str(www_dir / "jira-board-card.js"), cache_headers=False)]
     )
-    add_extra_js_url(hass, CARD_URL_PATH)
+    add_extra_js_url(hass, f"{CARD_URL_PATH}?v={CARD_VERSION}")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

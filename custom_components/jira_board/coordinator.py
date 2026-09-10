@@ -12,7 +12,7 @@ from .const import COLUMNS, DOMAIN, DONE_RETENTION_DAYS
 
 _LOGGER = logging.getLogger(__name__)
 
-FIELDS = ["summary", "status", "project", "resolutiondate"]
+FIELDS = ["summary", "status", "project", "resolutiondate", "parent"]
 
 
 class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
@@ -78,11 +78,24 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
                     COLUMNS[0],
                 )
                 column = COLUMNS[0]
+            epic_key = None
+            epic_name = None
+            parent = issue["fields"].get("parent")
+            # Team-managed projects link an Epic via the plain `parent`
+            # field (same field a subtask uses for its parent issue) - only
+            # treat it as an epic if that's actually what's on the other
+            # end, not e.g. a subtask's parent Story.
+            if parent and parent["fields"]["issuetype"]["name"] == "Epic":
+                epic_key = parent["key"]
+                epic_name = parent["fields"]["summary"]
+
             by_column[column].append(
                 {
                     "key": key,
                     "summary": issue["fields"]["summary"],
                     "project": issue["fields"]["project"]["key"],
+                    "epic_key": epic_key,
+                    "epic_name": epic_name,
                 }
             )
 
