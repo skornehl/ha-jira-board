@@ -10,7 +10,8 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -63,6 +64,39 @@ def _default_project_schema(chosen_keys: list[str]) -> vol.Schema:
                     options=options, mode=selector.SelectSelectorMode.DROPDOWN
                 )
             )
+        }
+    )
+
+
+def _options_schema(
+    all_projects: list[dict[str, str]], current_projects: list[str], current_default: str
+) -> vol.Schema:
+    project_options = [
+        selector.SelectOptionDict(value=p["key"], label=f"{p['key']} — {p['name']}")
+        for p in all_projects
+    ]
+    # Default-project options intentionally stay the *full* project list
+    # here, not just the currently-tracked ones: HA's selectors aren't
+    # reactive to each other within one step, so there's no way to narrow
+    # this dropdown live to whatever's mid-edit in the projects field above
+    # it. Picking a default outside the submitted projects is instead
+    # rejected server-side (see JiraBoardOptionsFlow.async_step_init).
+    return vol.Schema(
+        {
+            vol.Required(CONF_PROJECTS, default=current_projects): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=project_options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+            vol.Required(
+                CONF_DEFAULT_PROJECT, default=current_default
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=project_options, mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
         }
     )
 
@@ -140,4 +174,55 @@ class JiraBoardConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="default_project",
             data_schema=_default_project_schema(self._data[CONF_PROJECTS]),
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return JiraBoardOptionsFlow()
+
+
+class JiraBoardOptionsFlow(OptionsFlow):
+    """Change which projects are tracked / the default project later,
+    without removing and re-adding the whole integration. Writes to the
+    config entry's `options`, which take precedence over the original
+    `data` from initial setup wherever they're read (see __init__.py)."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        session = async_get_clientsession(self.hass)
+        client = JiraClient(
+            session,
+            self.config_entry.data[CONF_BASE_URL],
+            self.config_entry.data[CONF_EMAIL],
+            self.config_entry.data[CONF_API_TOKEN],
+        )
+        try:
+            all_projects = await client.list_projects()
+        except JiraApiError:
+            return self.async_abort(reason="cannot_connect")
+
+        current_projects = self.config_entry.options.get(
+            CONF_PROJECTS, self.config_entry.data[CONF_PROJECTS]
+        )
+        current_default = self.config_entry.options.get(
+            CONF_DEFAULT_PROJECT, self.config_entry.data[CONF_DEFAULT_PROJECT]
+        )
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input.get(CONF_PROJECTS):
+                errors["base"] = "no_projects_selected"
+            elif user_input[CONF_DEFAULT_PROJECT] not in user_input[CONF_PROJECTS]:
+                errors["base"] = "default_not_in_projects"
+            else:
+                return self.async_create_entry(data=user_input)
+            current_projects = user_input[CONF_PROJECTS]
+            current_default = user_input[CONF_DEFAULT_PROJECT]
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_options_schema(all_projects, current_projects, current_default),
+            errors=errors,
         )

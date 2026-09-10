@@ -40,7 +40,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import JiraApiError
-from .const import COLUMNS, COLUMN_SLUGS, CONF_DEFAULT_PROJECT, DOMAIN
+from .const import COLUMNS, COLUMN_SLUGS, DOMAIN
 from .coordinator import JiraBoardCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,10 +54,11 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator: JiraBoardCoordinator = hass.data[DOMAIN][entry.entry_id]
-    default_project = entry.data[CONF_DEFAULT_PROJECT]
+    # default_project is read from the coordinator (not entry.data directly)
+    # since it may have been changed later via the options flow - see
+    # __init__.py's data/options resolution.
     async_add_entities(
-        JiraBoardColumn(coordinator, entry.entry_id, column, default_project)
-        for column in COLUMNS
+        JiraBoardColumn(coordinator, entry.entry_id, column) for column in COLUMNS
     )
 
 
@@ -82,11 +83,9 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
         coordinator: JiraBoardCoordinator,
         entry_id: str,
         column: str,
-        default_project: str,
     ) -> None:
         super().__init__(coordinator)
         self._column = column
-        self._default_project = default_project
         self._attr_unique_id = f"{entry_id}_{COLUMN_SLUGS[column]}"
         self._attr_name = column
         self._attr_icon = "mdi:card-multiple-outline"
@@ -158,7 +157,7 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
         # `description` (only meaningful here, on creation - see the
         # supported_features comment above) to target that project instead
         # of the integration-wide default, e.g. for one-tab-per-project use.
-        target_project = self._default_project
+        target_project = self.coordinator.default_project
         if item.description and item.description in self.coordinator.projects:
             target_project = item.description
         try:

@@ -33,5 +33,23 @@
     "abort": {
       "already_configured": "Dieser Jira-Account ist bereits eingerichtet"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Jira Board – Projekte ändern",
+        "data": {
+          "projects": "Projekte",
+          "default_project": "Standard-Projekt"
+        }
+      }
+    },
+    "error": {
+      "no_projects_selected": "Bitte mindestens ein Projekt auswählen",
+      "default_not_in_projects": "Das Standard-Projekt muss eines der ausgewählten Projekte sein"
+    },
+    "abort": {
+      "cannot_connect": "Verbindung zu Jira fehlgeschlagen"
+    }
   }
 }

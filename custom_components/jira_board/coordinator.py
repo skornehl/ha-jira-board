@@ -31,6 +31,7 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
         hass: HomeAssistant,
         client: JiraClient,
         projects: list[str],
+        default_project: str,
         scan_interval: int,
     ) -> None:
         super().__init__(
@@ -41,6 +42,12 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
         )
         self.client = client
         self.projects = projects
+        # Single source of truth for which project a brand-new card lands
+        # in - todo.py reads it from here rather than the config entry
+        # directly, so it stays correct whether it came from the entry's
+        # `data` (initial setup) or `options` (changed later via the
+        # options flow) without duplicating that resolution logic.
+        self.default_project = default_project
         # issue_key -> column name we just forced it into locally
         self.just_moved: dict[str, str] = {}
 

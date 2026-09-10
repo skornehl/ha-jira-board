@@ -21,6 +21,7 @@ from .api import JiraClient
 from .const import (
     CONF_API_TOKEN,
     CONF_BASE_URL,
+    CONF_DEFAULT_PROJECT,
     CONF_EMAIL,
     CONF_PROJECTS,
     DEFAULT_SCAN_INTERVAL_SECONDS,
@@ -50,10 +51,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_EMAIL],
         entry.data[CONF_API_TOKEN],
     )
+    # `options` (set later via the options flow) take precedence over the
+    # original `data` from initial setup - this is the one place that
+    # resolution happens; the coordinator/todo platform read the already-
+    # resolved values from the coordinator, not the entry, from here on.
     coordinator = JiraBoardCoordinator(
         hass,
         client,
-        entry.data[CONF_PROJECTS],
+        entry.options.get(CONF_PROJECTS, entry.data[CONF_PROJECTS]),
+        entry.options.get(CONF_DEFAULT_PROJECT, entry.data[CONF_DEFAULT_PROJECT]),
         entry.data.get("scan_interval", DEFAULT_SCAN_INTERVAL_SECONDS),
     )
     await coordinator.async_config_entry_first_refresh()
@@ -61,7 +67,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await _async_register_frontend(hass)
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Options changed (tracked projects / default project) - reload so the
+    coordinator picks up the new values immediately instead of waiting for
+    the next HA restart."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:

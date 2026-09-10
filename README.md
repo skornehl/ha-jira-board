@@ -33,8 +33,10 @@ The config flow is three steps:
 3. **Default project** - which of the projects picked in step 2 a *brand
    new* card typed directly on the board gets created in.
 
-Changing the tracked projects later currently means removing and re-adding
-the integration (config entry data only, doesn't touch anything in Jira).
+To change the tracked projects or default project later, use the
+integration's **Configure** button (Settings → Devices & Services → Jira
+Board → Configure) - same live project picker as initial setup, takes
+effect immediately, no restart or re-adding needed.
 
 ## Adding the board to a dashboard
 
