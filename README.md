@@ -8,8 +8,8 @@ not a one-off import.
 Each board column (`To Do` / `In Progress` / `In Review` / `Done`) is a
 native `todo.*` entity, plus a small bundled Lovelace card
 (`custom:jira-board-card`) that renders them as a real drag-and-drop board.
-The card ships inside the integration and registers itself automatically -
-no manual Lovelace resource to add.
+The card ships inside the integration and registers itself automatically
+for browser use - no manual Lovelace resource needed there.
 
 ## Installation (HACS)
 
@@ -17,6 +17,20 @@ no manual Lovelace resource to add.
 2. Add this repository's URL, category **Integration**
 3. Install "Jira Board", then restart Home Assistant
 4. Settings → Devices & Services → **Add Integration** → search "Jira Board"
+
+### "Configuration error" in the Companion App
+
+The auto-registration above uses `add_extra_js_url`, which loads fine in a
+browser but has been observed *not* loading in the iOS/Android Companion
+App's WebView, showing a bare "Configuration error" with no further detail
+on the card instead. If that happens, add the card as an explicit Lovelace
+resource once (this is the same mechanism every other bundled/HACS card in
+a Home Assistant install typically uses, and works reliably everywhere
+including the Companion App):
+
+Settings → Dashboards → ⋮ (top right) → **Resources** → **Add Resource**
+→ URL: `/jira_board_static/jira-board-card.js` → Resource type: **JavaScript
+Module**.
 
 ## Setup
 

@@ -495,12 +495,21 @@ class JiraBoardCard extends HTMLElement {
   }
 }
 
-customElements.define("jira-board-card", JiraBoardCard);
+// Registered via both add_extra_js_url (auto-loads with zero setup) *and*
+// as an explicit Lovelace resource (the mechanism every other bundled card
+// in this instance uses, and apparently the one the Companion App's
+// WebView actually needs - add_extra_js_url alone rendered as a config
+// error there). Both loading this same script is possible, so guard
+// against a duplicate customElements.define(), which throws and would
+// otherwise silently break the rest of this file's execution.
+if (!customElements.get("jira-board-card")) {
+  customElements.define("jira-board-card", JiraBoardCard);
 
-// Make it show up in the "Add Card" picker.
-window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "jira-board-card",
-  name: "Jira Board",
-  description: "Drag-and-drop Kanban-Board für jira_board todo-Spalten, optional gruppiert nach Epic",
-});
+  // Make it show up in the "Add Card" picker.
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: "jira-board-card",
+    name: "Jira Board",
+    description: "Drag-and-drop Kanban-Board für jira_board todo-Spalten, optional gruppiert nach Epic",
+  });
+}
