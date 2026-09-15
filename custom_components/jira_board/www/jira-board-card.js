@@ -270,13 +270,26 @@ class JiraBoardCard extends HTMLElement {
           opacity: 0.7;
         }
         .card-priority {
-          /* Deliberately its own row/opacity, not nested inside
-             .card-key: it used to sit inside that dimmed, small-text
-             element (70% opacity, 14px) and was effectively invisible at
-             a glance - the whole point of showing it on the board at all
-             is to be readable without clicking into the popup. */
-          width: 20px;
-          height: 20px;
+          /* Was nested inside .card-key (70% opacity, 14px) and
+             effectively invisible - pulled out to its own row at full
+             opacity first, but Jira's own priority icons are themselves
+             just thin single-color line glyphs (no filled shape), so
+             even large and undimmed they stayed easy to miss against the
+             card background. A background "chip" gives it contrast/a
+             visual boundary regardless of how minimal the icon itself
+             is - deliberately not a hardcoded priority-name-to-color
+             mapping (Highest=red, etc.): that would drift from whatever
+             priorities/colors this specific Jira site actually has
+             configured (see coordinator.all_priorities), the same
+             reasoning as the edit popup's dropdown using real fetched
+             priorities instead of guessing the default 5. */
+          width: 22px;
+          height: 22px;
+          padding: 3px;
+          box-sizing: border-box;
+          border-radius: 50%;
+          background: var(--secondary-background-color, #eee);
+          border: 1px solid var(--divider-color, #e0e0e0);
           flex: 0 0 auto;
           opacity: 1;
         }
