@@ -156,9 +156,12 @@ currently a fork-it-yourself change, not a config option.
   second site).
 - The toolbar (search, project filter, group-by-epic toggle) scrolls away
   with the rest of the board on a tall view instead of staying pinned -
-  a "sticky" version was tried and reverted (see git history around
-  1.7.1-1.7.4) after it repeatedly failed to work correctly in a Panel
-  view and once broke the "add task" input.
+  a "sticky" version was tried and abandoned (see git history around
+  1.7.1-1.7.4) after failing in both a Panel view (`panel: true`) and the
+  default Masonry view, and once breaking the "add task" input along the
+  way. Something in HA's own card-wrapper layout (outside this card's own
+  shadow DOM, so unreachable from its CSS) appears to block
+  `position: sticky` regardless of view type - not investigated further.
 - No sync of summary/description edits after creation, no due dates -
   status/column only. The details popup can *show* description, priority,
   assignee, reporter and labels (read-only, fetched from Jira live), but
