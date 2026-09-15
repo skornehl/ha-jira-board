@@ -74,14 +74,20 @@ class JiraBoardCard extends HTMLElement {
     // if a relevant change arrives mid-fetch, just remember to run once
     // more right after instead of overlapping.
     if (!this._config) return;
+    // Item count alone (`state`) misses a change that's *only* in
+    // `all_epics` - e.g. a brand new Epic with no cards yet wouldn't
+    // otherwise get its lane rendered until some unrelated item move
+    // happened to also trigger a refetch. Cheap to compare, the list is
+    // always tiny.
+    const seenKey = (s) => (s ? `${s.state}|${JSON.stringify(s.attributes?.all_epics || [])}` : undefined);
     const changed = this._config.columns.some((col) => {
       const s = hass.states[col.entity];
-      return s && s.state !== this._lastSeenState?.[col.entity];
+      return s && seenKey(s) !== this._lastSeenState?.[col.entity];
     });
     if (!changed) return;
     this._lastSeenState = {};
     for (const col of this._config.columns) {
-      this._lastSeenState[col.entity] = hass.states[col.entity]?.state;
+      this._lastSeenState[col.entity] = seenKey(hass.states[col.entity]);
     }
     if (this._fetching) {
       this._pendingRefetch = true;
@@ -318,7 +324,12 @@ class JiraBoardCard extends HTMLElement {
 
   _updateProjectOptions() {
     if (!this._projectSelectEl) return;
-    const projects = [...new Set(this._allItems().map((i) => i.project).filter(Boolean))].sort();
+    // Union with epic projects too, same reasoning as _epicsPresent(): a
+    // project whose only current content is an empty Epic would
+    // otherwise never appear in the filter dropdown either.
+    const fromItems = this._allItems().map((i) => i.project);
+    const fromEpics = this._allEpics().map((e) => e.project);
+    const projects = [...new Set([...fromItems, ...fromEpics].filter(Boolean))].sort();
     const current = this._projectFilter;
     this._projectSelectEl.innerHTML =
       `<option value="__all__">Alle</option>` +
@@ -354,6 +365,15 @@ class JiraBoardCard extends HTMLElement {
     }
   }
 
+  // All epics the coordinator knows about for the configured project(s),
+  // *including* ones with zero cards currently on the board - see
+  // todo.py's extra_state_attributes. Read off whichever configured
+  // column happens to be first; every column carries the same list.
+  _allEpics() {
+    const first = this._config.columns[0];
+    return this._hass?.states[first.entity]?.attributes?.all_epics || [];
+  }
+
   _epicsPresent() {
     const epics = new Map(); // key -> name
     for (const col of this._config.columns) {
@@ -362,6 +382,12 @@ class JiraBoardCard extends HTMLElement {
         const key = item.epicKey || NO_EPIC;
         if (!epics.has(key)) epics.set(key, item.epicName || "Kein Epic");
       }
+    }
+    // Merge in empty Epics (no cards on the board at all right now) so
+    // they still get a lane, same project filter as everything else.
+    for (const epic of this._allEpics()) {
+      if (this._projectFilter !== "__all__" && epic.project !== this._projectFilter) continue;
+      if (!epics.has(epic.key)) epics.set(epic.key, epic.name);
     }
     // Real epics first (sorted by key), "Kein Epic" always last.
     const keys = [...epics.keys()].filter((k) => k !== NO_EPIC).sort();

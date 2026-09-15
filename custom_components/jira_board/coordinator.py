@@ -13,6 +13,7 @@ from .const import COLUMNS, DOMAIN, DONE_RETENTION_DAYS
 _LOGGER = logging.getLogger(__name__)
 
 FIELDS = ["summary", "status", "project", "resolutiondate", "parent"]
+EPIC_FIELDS = ["summary"]
 
 
 class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
@@ -50,6 +51,14 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
         self.default_project = default_project
         # issue_key -> column name we just forced it into locally
         self.just_moved: dict[str, str] = {}
+        # Epics for the configured projects, *including* ones with zero
+        # cards currently on the board - by_column/todo_items only ever
+        # sees an Epic if some issue's `parent` points at it, so a
+        # freshly-created (or fully-filtered-out) Epic would otherwise
+        # never get a lane in "Group by Epic" view. Fetched separately
+        # since search/jql has no "give me every parent of these issues,
+        # even absent ones" mode. [{"key": ..., "name": ..., "project": ...}]
+        self.all_epics: list[dict] = []
 
     def _jql(self) -> str:
         projects = ", ".join(self.projects)
@@ -59,11 +68,38 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
             "ORDER BY updated DESC"
         )
 
+    def _epic_jql(self) -> str:
+        projects = ", ".join(self.projects)
+        # Same Done-retention window as regular issues (see _jql) so a
+        # long-closed Epic doesn't linger as a permanent empty lane.
+        return (
+            f"project in ({projects}) AND issuetype = Epic AND "
+            f"(statusCategory != Done OR resolutiondate >= -{DONE_RETENTION_DAYS}d) "
+            "ORDER BY key ASC"
+        )
+
     async def _async_update_data(self) -> dict[str, list[dict]]:
         try:
             issues = await self.client.search_issues(self._jql(), FIELDS)
         except JiraApiError as err:
             raise UpdateFailed(f"Jira search failed: {err}") from err
+
+        try:
+            epic_issues = await self.client.search_issues(self._epic_jql(), EPIC_FIELDS)
+            self.all_epics = [
+                {
+                    "key": e["key"],
+                    "name": e["fields"]["summary"],
+                    "project": e["key"].split("-")[0],
+                }
+                for e in epic_issues
+            ]
+        except JiraApiError as err:
+            # Not fatal for the board itself (columns/cards still work) -
+            # "Group by Epic" just temporarily falls back to only the
+            # epics inferable from items on screen, same as before this
+            # feature existed.
+            _LOGGER.warning("Fetching Epics failed, keeping previous list: %s", err)
 
         by_column: dict[str, list[dict]] = {c: [] for c in COLUMNS}
         seen: set[str] = set()

@@ -91,6 +91,16 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
         self._attr_icon = "mdi:card-multiple-outline"
 
     @property
+    def extra_state_attributes(self) -> dict:
+        # Rides along on every column entity (cheap, small list) so the
+        # card can read it off whichever configured column it likes - see
+        # jira-board-card.js's "Group by Epic" lanes for why this exists:
+        # an Epic with zero cards currently on the board would otherwise
+        # never get a lane, since todo_items only carries epic info for
+        # issues that actually have a parent Epic.
+        return {"all_epics": self.coordinator.all_epics}
+
+    @property
     def todo_items(self) -> list[TodoItem]:
         issues = self.coordinator.data.get(self._column, [])
         done = self._column == "Done"

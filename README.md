@@ -86,7 +86,10 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
 - **Group by Epic** toggle in the toolbar turns the single row of columns
   into swim lanes, one per Epic plus a "Kein Epic"/"No Epic" catch-all.
   Purely a client-side layout choice - drag-and-drop works exactly the same
-  across lanes.
+  across lanes. Epics get a lane even with zero cards currently on the
+  board (e.g. a freshly created one) - the integration fetches the full
+  Epic list for the configured project(s) separately, not just the ones
+  inferable from issues actually on screen.
 - **Project filter** dropdown, defaulting to the `project`/`projects`
   config above. Set a different default per dashboard tab to get one board
   per project.
