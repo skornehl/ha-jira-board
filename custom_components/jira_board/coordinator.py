@@ -61,9 +61,15 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
         self.all_epics: list[dict] = []
 
     def _jql(self) -> str:
+        # issuetype != Epic: Epics themselves have no `parent`, so without
+        # this they'd show up as ordinary cards in the "Kein Epic" lane -
+        # on top of, not instead of, their own proper lane from
+        # all_epics/_epic_jql below. Found 2026-09-15, the same day the
+        # empty-lane fix made it obvious (an Epic previously just quietly
+        # sat uncategorized; now it visibly duplicated itself).
         projects = ", ".join(self.projects)
         return (
-            f"project in ({projects}) AND "
+            f"project in ({projects}) AND issuetype != Epic AND "
             f"(statusCategory != Done OR resolutiondate >= -{DONE_RETENTION_DAYS}d) "
             "ORDER BY updated DESC"
         )
