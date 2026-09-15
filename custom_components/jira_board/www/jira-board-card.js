@@ -123,6 +123,33 @@ class JiraBoardCard extends HTMLElement {
 
   connectedCallback() {
     if (!this.shadowRoot) this._render();
+    // Safety net: the normal path only re-fetches when the `hass` setter
+    // sees one of our 4 entities' state/all_epics actually change - fast
+    // and quiet, but a single stuck `_fetching` guard (e.g. a `callWS`
+    // that never resolves/rejects) would silently freeze the board
+    // forever, since every future real change just piles into
+    // `_pendingRefetch` and waits for a `_fetching` reset that never
+    // comes. Poll unconditionally every 20s as a backstop so a reload is
+    // never required to see it self-correct - cheap (a handful of
+    // todo.get_items calls), and _updateItems() already no-ops safely if
+    // hass/config aren't ready yet.
+    if (!this._pollInterval) {
+      this._pollInterval = setInterval(() => {
+        // Also the actual unstick: if we've been "fetching" for longer
+        // than one whole poll cycle, something hung - force it back open
+        // rather than let _pendingRefetch queue up against a guard that
+        // will never clear itself.
+        if (this._fetching) this._fetching = false;
+        this._updateItems();
+      }, 20000);
+    }
+  }
+
+  disconnectedCallback() {
+    if (this._pollInterval) {
+      clearInterval(this._pollInterval);
+      this._pollInterval = null;
+    }
   }
 
   _render() {
@@ -258,19 +285,37 @@ class JiraBoardCard extends HTMLElement {
 
   // ---- data fetching -------------------------------------------------
 
+  // A `callWS` promise that never settles (dropped connection mid-flight,
+  // browser tab throttled in the background, etc.) would otherwise hang
+  // `_updateItems()` forever, leaving `_fetching` stuck `true` - every
+  // later real change then just queues into `_pendingRefetch` and waits
+  // for a reset that never comes, i.e. "works once, then needs a reload".
+  // Race each column's fetch against a timeout instead of trusting it to
+  // always settle on its own; connectedCallback's poll interval is the
+  // second, coarser layer of the same defense.
+  _withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+    ]);
+  }
+
   async _updateItems() {
     if (!this._hass || !this._config) return;
     this._fetching = true;
     try {
       for (const col of this._config.columns) {
         try {
-          const resp = await this._hass.callWS({
-            type: "call_service",
-            domain: "todo",
-            service: "get_items",
-            service_data: { entity_id: col.entity },
-            return_response: true,
-          });
+          const resp = await this._withTimeout(
+            this._hass.callWS({
+              type: "call_service",
+              domain: "todo",
+              service: "get_items",
+              service_data: { entity_id: col.entity },
+              return_response: true,
+            }),
+            10000
+          );
           const items = resp?.response?.[col.entity]?.items || [];
           this._itemsByEntity[col.entity] = items.map((item) => this._parseItem(item));
         } catch (err) {
