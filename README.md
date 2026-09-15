@@ -97,7 +97,10 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   page reloads and HA restarts (`localStorage`, scoped per card instance).
 - **"+ Aufgabe hinzufügen"** input at the bottom of every column creates a
   brand new Jira issue directly from the board (see below for which
-  project it lands in).
+  project it lands in). Typed inside a specific Epic's lane (Group by
+  Epic view), the new issue is linked to that Epic from the start
+  instead of landing in "Kein Epic" - typed in the ungrouped view or in
+  the "Kein Epic" lane itself, it's created without one, same as before.
 
 ## How the sync works
 

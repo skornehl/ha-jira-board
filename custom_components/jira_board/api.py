@@ -130,9 +130,19 @@ class JiraClient:
         return False
 
     async def create_issue(
-        self, project_key: str, summary: str, issue_type: str = "Task"
+        self,
+        project_key: str,
+        summary: str,
+        issue_type: str = "Task",
+        epic_key: str | None = None,
     ) -> str:
-        """Create a new issue, return its key (e.g. 'HA-50')."""
+        """Create a new issue, return its key (e.g. 'HA-50').
+
+        `epic_key`, if given, links it as the new issue's parent Epic in
+        one call - team-managed Jira projects use the plain `parent` field
+        for this (same field a subtask uses for its parent issue), see the
+        matching comment in coordinator.py.
+        """
         payload = {
             "fields": {
                 "project": {"key": project_key},
@@ -140,5 +150,7 @@ class JiraClient:
                 "issuetype": {"name": issue_type},
             }
         }
+        if epic_key:
+            payload["fields"]["parent"] = {"key": epic_key}
         data = await self._request("POST", "/rest/api/3/issue", json=payload)
         return data["key"]

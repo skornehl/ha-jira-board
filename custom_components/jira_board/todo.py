@@ -162,16 +162,29 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
             return
 
         # No recognizable "KEY  " prefix -> a genuinely new card was typed
-        # directly on the board, create a real Jira issue for it. A project
-        # filter active in the card can pass its selection through
+        # directly on the board, create a real Jira issue for it.
         # `description` (only meaningful here, on creation - see the
-        # supported_features comment above) to target that project instead
-        # of the integration-wide default, e.g. for one-tab-per-project use.
+        # supported_features comment above) carries the project filter
+        # and, if the card was typed inside a specific Epic's lane, that
+        # Epic too, so the new issue is linked from the start instead of
+        # landing in "Kein Epic". Two shapes for backward compatibility:
+        # a bare project-key string (older card versions / anything else
+        # driving todo.add_item directly), or a JSON blob
+        # `{"project": ..., "epic": ...}` (current card.js).
         target_project = self.coordinator.default_project
-        if item.description and item.description in self.coordinator.projects:
-            target_project = item.description
+        epic_key = None
+        if item.description:
+            try:
+                payload = json.loads(item.description)
+                if not isinstance(payload, dict):
+                    raise ValueError
+            except (json.JSONDecodeError, ValueError):
+                payload = {"project": item.description}
+            if payload.get("project") in self.coordinator.projects:
+                target_project = payload["project"]
+            epic_key = payload.get("epic")
         try:
-            new_key = await client.create_issue(target_project, summary)
+            new_key = await client.create_issue(target_project, summary, epic_key=epic_key)
         except JiraApiError as err:
             _LOGGER.error("Konnte kein Jira-Issue für '%s' anlegen: %s", summary, err)
             return

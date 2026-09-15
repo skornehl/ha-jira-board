@@ -423,12 +423,12 @@ class JiraBoardCard extends HTMLElement {
       if (epicFilter !== null) {
         items = items.filter((i) => (i.epicKey || NO_EPIC) === epicFilter);
       }
-      row.appendChild(this._buildColumn(col, items));
+      row.appendChild(this._buildColumn(col, items, epicFilter));
     }
     return row;
   }
 
-  _buildColumn(col, items) {
+  _buildColumn(col, items, epicFilter) {
     const columnEl = document.createElement("div");
     columnEl.className = "column";
     columnEl.innerHTML = `
@@ -450,9 +450,14 @@ class JiraBoardCard extends HTMLElement {
       if (!text || !this._hass) return;
       // Only pass a project override if a single, specific project is
       // selected - "Alle" gives no useful hint, backend then falls back to
-      // its own configured default_project.
+      // its own configured default_project. Same idea for epic: only a
+      // real Epic lane (not "Kein Epic", not the ungrouped view) counts
+      // as a hint - typing a card there shouldn't invent a link.
+      const payload = {};
+      if (this._projectFilter !== "__all__") payload.project = this._projectFilter;
+      if (epicFilter && epicFilter !== NO_EPIC) payload.epic = epicFilter;
       const data = { entity_id: col.entity, item: text };
-      if (this._projectFilter !== "__all__") data.description = this._projectFilter;
+      if (Object.keys(payload).length > 0) data.description = JSON.stringify(payload);
       this._hass.callService("todo", "add_item", data);
       addInput.value = "";
     };
