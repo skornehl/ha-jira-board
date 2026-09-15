@@ -75,6 +75,50 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
                               # auto-derived from columns/project if omitted
 ```
 
+### One dashboard tab, multiple boards
+
+Nothing special needed - this is just normal Lovelace behavior, since each
+board is a single, independent card. Add several `custom:jira-board-card`
+entries under the same view's `cards:`, each with its own `project` (or
+`projects`) filter and (if the derived key would otherwise collide) an
+explicit `card_id`:
+
+```yaml
+title: Board
+path: board
+cards:
+  - type: custom:jira-board-card
+    card_id: board-hug
+    project: HUG
+    columns: &columns
+      - entity: todo.to_do
+        title: To Do
+      - entity: todo.in_progress
+        title: In Progress
+      - entity: todo.in_review
+        title: In Review
+      - entity: todo.done
+        title: Done
+  - type: custom:jira-board-card
+    card_id: board-fam
+    project: FAM
+    columns: *columns
+  - type: custom:jira-board-card
+    card_id: board-ha
+    project: HA
+    columns: *columns
+```
+
+Each card keeps its own group-by-epic/collapsed-lanes/project-filter state
+in `localStorage` (scoped by `card_id`), completely independent of the
+others. On a **Masonry** view (the default) the cards lay out side by side
+if the screen is wide enough, wrapping to a new row otherwise, and each
+board's own `.board { overflow-x: auto }` keeps a 4-column board usable
+even if squeezed into a narrower tile - drag-and-drop across the columns
+still works normally either way. A **Panel** view only ever supports a
+single card (HA shows a warning if you configure more than one there), so
+switch to the default view type first if the tab is currently `panel: true`.
+
 ## Card features
 
 - **Drag and drop** between columns moves the card instantly (optimistic
