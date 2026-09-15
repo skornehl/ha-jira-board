@@ -1,0 +1,25 @@
+get_issue:
+  name: Get issue details
+  description: >-
+    Fetch full details (description, assignee, reporter, priority, labels,
+    dates) for a single Jira issue. Used internally by the board card's
+    click-for-details popup; returns the data rather than firing an event
+    or setting a state, so call it with "return_response".
+  fields:
+    issue_key:
+      name: Issue key
+      description: The Jira issue key to fetch, e.g. HA-42.
+      required: true
+      example: "HA-42"
+      selector:
+        text:
+    board_entity_id:
+      name: Board entity
+      description: >-
+        One of the board's todo.* column entities, so the right configured
+        Jira site is used when more than one board is set up. Falls back to
+        the only/first configured board if omitted.
+      required: false
+      selector:
+        entity:
+          domain: todo

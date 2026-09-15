@@ -154,6 +154,10 @@ class JiraBoardCard extends HTMLElement {
       clearInterval(this._pollInterval);
       this._pollInterval = null;
     }
+    if (this._escKeyHandler) {
+      document.removeEventListener("keydown", this._escKeyHandler);
+      this._escKeyHandler = null;
+    }
   }
 
   _render() {
@@ -266,6 +270,78 @@ class JiraBoardCard extends HTMLElement {
           font-size: 0.9em;
           min-width: 140px;
         }
+        .modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+        .modal-backdrop[hidden] { display: none; }
+        .modal {
+          position: relative;
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+          border-radius: 8px;
+          padding: 20px;
+          max-width: 560px;
+          width: 90%;
+          max-height: 85vh;
+          overflow-y: auto;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+        .modal-close {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          border: none;
+          background: transparent;
+          color: var(--primary-text-color);
+          font-size: 1.2em;
+          cursor: pointer;
+          line-height: 1;
+          padding: 6px;
+          opacity: 0.6;
+        }
+        .modal-close:hover { opacity: 1; }
+        .modal h2 { margin: 2px 26px 4px 0; font-size: 1.15em; }
+        .modal-key { font-weight: 600; opacity: 0.65; font-size: 0.85em; }
+        .modal-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px 20px;
+          margin: 14px 0;
+          font-size: 0.88em;
+        }
+        .modal-meta div { display: flex; flex-direction: column; gap: 1px; }
+        .modal-meta span.label { opacity: 0.6; font-size: 0.82em; }
+        .modal-labels span {
+          display: inline-block;
+          background: var(--secondary-background-color, #eee);
+          border-radius: 4px;
+          padding: 2px 7px;
+          margin: 0 4px 4px 0;
+          font-size: 0.8em;
+        }
+        .modal-description {
+          border-top: 1px solid var(--divider-color, #e0e0e0);
+          margin-top: 12px;
+          padding-top: 10px;
+          font-size: 0.9em;
+          line-height: 1.45;
+          word-wrap: break-word;
+        }
+        .modal-description :first-child { margin-top: 0; }
+        .modal-description :last-child { margin-bottom: 0; }
+        .modal-link {
+          display: inline-block;
+          margin-top: 16px;
+          font-size: 0.85em;
+          color: var(--primary-color, #03a9f4);
+        }
+        .modal-error { color: var(--error-color, #db4437); }
       </style>
       <ha-card>
         <div class="toolbar">
@@ -281,6 +357,12 @@ class JiraBoardCard extends HTMLElement {
         </div>
         <div class="board"></div>
       </ha-card>
+      <div class="modal-backdrop" hidden>
+        <div class="modal">
+          <button class="modal-close" title="Schließen" aria-label="Schließen">✕</button>
+          <div class="modal-body"><em>Lade …</em></div>
+        </div>
+      </div>
     `;
     root.querySelector(".group-toggle").addEventListener("change", (e) => {
       this._groupByEpic = e.target.checked;
@@ -301,6 +383,25 @@ class JiraBoardCard extends HTMLElement {
       this._renderBoard();
     });
     this._boardEl = root.querySelector(".board");
+
+    this._modalBackdropEl = root.querySelector(".modal-backdrop");
+    this._modalBodyEl = root.querySelector(".modal-body");
+    root.querySelector(".modal-close").addEventListener("click", () => this._closeModal());
+    this._modalBackdropEl.addEventListener("click", (e) => {
+      if (e.target === this._modalBackdropEl) this._closeModal(); // outside the modal box itself
+    });
+    // A single document-level listener per card instance, not per-render -
+    // _render() only runs once per config in practice, but guard anyway so
+    // a hypothetical extra call can't stack up duplicate handlers.
+    if (!this._escKeyHandler) {
+      this._escKeyHandler = (e) => {
+        if (e.key === "Escape" && this._modalBackdropEl && !this._modalBackdropEl.hidden) {
+          this._closeModal();
+        }
+      };
+      document.addEventListener("keydown", this._escKeyHandler);
+    }
+
     this._renderBoard();
   }
 
@@ -569,13 +670,101 @@ class JiraBoardCard extends HTMLElement {
       el.innerHTML = item.key
         ? `<div class="card-key">${item.key}</div><div>${item.text}</div>`
         : `<div>${item.text}</div>`;
+      // A completed native HTML5 drag normally doesn't also fire a `click`
+      // on the source element, but that's an observed browser behavior,
+      // not a spec guarantee - track it explicitly so an edge case can't
+      // pop the details modal right after a drop. A genuine click (press +
+      // release with no real movement) never fires `dragstart` at all, so
+      // it's unaffected. `dragend` is deferred a tick since some browsers
+      // appear to fire a trailing `click` right after it.
+      let justDragged = false;
       el.addEventListener("dragstart", () => {
         this._dragItem = item;
         this._dragSourceEntity = col.entity;
+        justDragged = true;
+      });
+      el.addEventListener("dragend", () => {
+        setTimeout(() => {
+          justDragged = false;
+        }, 0);
+      });
+      el.addEventListener("click", () => {
+        if (justDragged || !item.key) return;
+        this._openDetails(item, col.entity);
       });
       body.appendChild(el);
     }
     return columnEl;
+  }
+
+  // ---- details popup ---------------------------------------------------
+
+  _escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str ?? "";
+    return div.innerHTML;
+  }
+
+  async _openDetails(item, entityId) {
+    if (!this._hass || !this._modalBackdropEl) return;
+    this._modalBackdropEl.hidden = false;
+    this._modalBodyEl.innerHTML = "<em>Lade …</em>";
+    try {
+      const resp = await this._hass.callWS({
+        type: "call_service",
+        domain: "jira_board",
+        service: "get_issue",
+        service_data: { issue_key: item.key, board_entity_id: entityId },
+        return_response: true,
+      });
+      // Guard against the modal having been closed (or reopened for a
+      // *different* card) while this fetch was still in flight.
+      if (this._modalBackdropEl.hidden) return;
+      const data = resp?.response;
+      if (!data) throw new Error("empty response");
+      this._renderModalContent(data);
+    } catch (err) {
+      if (this._modalBackdropEl.hidden) return;
+      this._modalBodyEl.innerHTML =
+        `<div class="modal-error">Details für ${this._escapeHtml(item.key)} ` +
+        `konnten nicht geladen werden.</div>`;
+    }
+  }
+
+  _closeModal() {
+    if (this._modalBackdropEl) this._modalBackdropEl.hidden = true;
+  }
+
+  _renderModalContent(data) {
+    const esc = (s) => this._escapeHtml(s);
+    const person = (p) => (p?.name ? esc(p.name) : "–");
+    const fmtDate = (iso) => {
+      if (!iso) return "–";
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? esc(iso) : esc(d.toLocaleString());
+    };
+    const labels = (data.labels || []).map((l) => `<span>${esc(l)}</span>`).join("");
+    // description_html comes straight from Jira's own `renderedFields`
+    // (expand=renderedFields on the get_issue call) - already-rendered
+    // HTML from Jira's own renderer, inserted as-is rather than
+    // re-escaped; everything else on this card is free-text/user input
+    // and goes through esc() above.
+    this._modalBodyEl.innerHTML = `
+      <div class="modal-key">${esc(data.key)}${data.issue_type ? " · " + esc(data.issue_type) : ""}</div>
+      <h2>${esc(data.summary)}</h2>
+      <div class="modal-meta">
+        <div><span class="label">Status</span>${esc(data.status) || "–"}</div>
+        <div><span class="label">Projekt</span>${esc(data.project) || "–"}</div>
+        <div><span class="label">Priorität</span>${esc(data.priority) || "–"}</div>
+        <div><span class="label">Assignee</span>${person(data.assignee)}</div>
+        <div><span class="label">Reporter</span>${person(data.reporter)}</div>
+        <div><span class="label">Erstellt</span>${fmtDate(data.created)}</div>
+        <div><span class="label">Aktualisiert</span>${fmtDate(data.updated)}</div>
+      </div>
+      ${labels ? `<div class="modal-labels">${labels}</div>` : ""}
+      <div class="modal-description">${data.description_html || "<em>Keine Beschreibung</em>"}</div>
+      <a class="modal-link" href="${esc(data.url)}" target="_blank" rel="noopener noreferrer">In Jira öffnen ↗</a>
+    `;
   }
 
   _onDrop(targetEntity) {

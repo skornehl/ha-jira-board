@@ -11,13 +11,17 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import JiraClient
+from .api import JiraApiError, JiraClient, format_issue_for_card
 from .const import (
     CONF_API_TOKEN,
     CONF_BASE_URL,
@@ -32,6 +36,16 @@ from .coordinator import JiraBoardCoordinator
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["todo"]
 
+SERVICE_GET_ISSUE = "get_issue"
+ATTR_ISSUE_KEY = "issue_key"
+ATTR_BOARD_ENTITY_ID = "board_entity_id"
+GET_ISSUE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ISSUE_KEY): cv.string,
+        vol.Optional(ATTR_BOARD_ENTITY_ID): cv.entity_id,
+    }
+)
+
 # Bump on every change to www/jira-board-card.js. Appended as a query
 # string on the registered URL purely for cache-busting - browsers treat a
 # different URL as a different resource, so this is what actually
@@ -39,7 +53,7 @@ PLATFORMS = ["todo"]
 # serving a stale cached copy despite cache_headers=False below (that flag
 # only affects HA's own response headers, not whatever caching heuristics
 # the browser decides to apply on its own).
-CARD_VERSION = "7"
+CARD_VERSION = "8"
 CARD_URL_PATH = f"/{DOMAIN}_static/jira-board-card.js"
 
 
@@ -68,6 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await _async_register_frontend(hass)
+    await _async_register_services(hass)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
@@ -95,6 +110,54 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         [StaticPathConfig(CARD_URL_PATH, str(www_dir / "jira-board-card.js"), cache_headers=False)]
     )
     add_extra_js_url(hass, f"{CARD_URL_PATH}?v={CARD_VERSION}")
+
+
+async def _async_register_services(hass: HomeAssistant) -> None:
+    """Register the `get_issue` service backing the card's detail popup.
+
+    Domain-level (not per-entry/per-entity) and registered once, same
+    idempotency reasoning as _async_register_frontend - a second
+    account/board must not try to register it twice.
+    """
+    if hass.services.has_service(DOMAIN, SERVICE_GET_ISSUE):
+        return
+
+    async def _async_get_issue(call: ServiceCall) -> ServiceResponse:
+        client = _resolve_client(hass, call.data.get(ATTR_BOARD_ENTITY_ID))
+        issue_key = call.data[ATTR_ISSUE_KEY]
+        try:
+            issue = await client.get_issue(issue_key)
+        except JiraApiError as err:
+            raise HomeAssistantError(f"Could not fetch {issue_key}: {err}") from err
+        return format_issue_for_card(issue, client.base_url)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_ISSUE,
+        _async_get_issue,
+        schema=GET_ISSUE_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+
+def _resolve_client(hass: HomeAssistant, board_entity_id: str | None) -> JiraClient:
+    """Pick which configured board's Jira client should serve this call.
+
+    The card always passes its own column entity's ID along, so a second
+    board (second config entry, e.g. a different Jira site - see the
+    "single site per entry" limitation in the README) routes correctly
+    instead of silently hitting whichever entry happens to be first. Falls
+    back to the only/first configured board if no entity_id is given
+    (covers the common single-board case, and any caller that omits it).
+    """
+    coordinators = hass.data.get(DOMAIN, {})
+    if board_entity_id:
+        entity = er.async_get(hass).async_get(board_entity_id)
+        if entity and entity.config_entry_id in coordinators:
+            return coordinators[entity.config_entry_id].client
+    if not coordinators:
+        raise HomeAssistantError("No Jira Board configured")
+    return next(iter(coordinators.values())).client
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

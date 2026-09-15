@@ -41,6 +41,12 @@ class JiraClient:
             "Content-Type": "application/json",
         }
 
+    @property
+    def base_url(self) -> str:
+        # Exposed so callers (the get_issue service handler) can build a
+        # "view in Jira" link without duplicating the site URL elsewhere.
+        return self._base_url
+
     async def _request(
         self, method: str, path: str, json: dict[str, Any] | None = None
     ) -> Any:
@@ -154,3 +160,71 @@ class JiraClient:
             payload["fields"]["parent"] = {"key": epic_key}
         data = await self._request("POST", "/rest/api/3/issue", json=payload)
         return data["key"]
+
+    async def get_issue(self, issue_key: str) -> dict[str, Any]:
+        """Fetch one issue's full details, for the card's click-to-detail popup.
+
+        Only the fields the popup actually shows are requested (cheap,
+        avoids ever pulling e.g. attachments/comments by accident).
+        `expand=renderedFields` gets `description` back as ready-to-display
+        HTML instead of Jira's Atlassian Document Format (ADF) JSON tree -
+        avoids needing an ADF renderer for what is otherwise a one-field,
+        one-popup use.
+        """
+        fields = ",".join(
+            [
+                "summary",
+                "description",
+                "status",
+                "issuetype",
+                "project",
+                "assignee",
+                "reporter",
+                "priority",
+                "labels",
+                "created",
+                "updated",
+            ]
+        )
+        return await self._request(
+            "GET",
+            f"/rest/api/3/issue/{issue_key}?fields={fields}&expand=renderedFields",
+        )
+
+
+def format_issue_for_card(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
+    """Flatten a raw `get_issue` response into the plain shape the card's
+    detail popup renders directly, keeping Jira's actual response shape
+    (nested `fields`/`renderedFields`, People objects, ...) out of the
+    frontend - a standalone function (not a JiraClient method) since it's
+    pure data reshaping with no API call of its own, used by the
+    `get_issue` service handler in __init__.py.
+    """
+
+    def _person(person: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not person:
+            return None
+        return {
+            "name": person.get("displayName"),
+            "avatar": (person.get("avatarUrls") or {}).get("48x48"),
+        }
+
+    fields = issue.get("fields", {})
+    rendered = issue.get("renderedFields", {})
+    priority = fields.get("priority")
+    return {
+        "key": issue["key"],
+        "url": f"{base_url}/browse/{issue['key']}",
+        "summary": fields.get("summary"),
+        "status": (fields.get("status") or {}).get("name"),
+        "issue_type": (fields.get("issuetype") or {}).get("name"),
+        "project": (fields.get("project") or {}).get("key"),
+        "assignee": _person(fields.get("assignee")),
+        "reporter": _person(fields.get("reporter")),
+        "priority": priority.get("name") if priority else None,
+        "priority_icon": priority.get("iconUrl") if priority else None,
+        "labels": fields.get("labels") or [],
+        "created": fields.get("created"),
+        "updated": fields.get("updated"),
+        "description_html": rendered.get("description") or "",
+    }

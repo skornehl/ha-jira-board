@@ -100,6 +100,13 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
 - The Epic toggle and the project filter are **remembered** across page
   reloads and HA restarts (`localStorage`, scoped per card instance); the
   search box intentionally isn't.
+- **Click a card** to open a details popup - summary, status, project,
+  priority, assignee, reporter, labels, created/updated dates, and the
+  full description (rendered the same as Jira shows it), plus a link to
+  open the issue directly in Jira. Fetched live on click (not cached from
+  the board's own poll, which only carries the handful of fields the board
+  itself needs), so it's always current. A drag-and-drop move doesn't
+  trigger it - only a plain click.
 - **"+ Aufgabe hinzufügen"** input at the bottom of every column creates a
   brand new Jira issue directly from the board (see below for which
   project it lands in). Typed inside a specific Epic's lane (Group by
@@ -147,8 +154,10 @@ currently a fork-it-yourself change, not a config option.
 
 - Single Jira Cloud site per config entry (add the integration again for a
   second site).
-- No sync of summary/description edits after creation, no due dates,
-  priority, or assignee - status/column only.
+- No sync of summary/description edits after creation, no due dates -
+  status/column only. The details popup can *show* description, priority,
+  assignee, reporter and labels (read-only, fetched from Jira live), but
+  nothing on the board writes any of those back.
 - `Done` issues older than 14 days drop off the board (`const.py:
   DONE_RETENTION_DAYS`) so it doesn't accumulate forever.
 
