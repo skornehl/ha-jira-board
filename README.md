@@ -107,12 +107,23 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   all **remembered** across page reloads and HA restarts (`localStorage`,
   scoped per card instance); the search box intentionally isn't.
 - **Click a card** to open a details popup - summary, status, project,
-  priority, assignee, reporter, labels, created/updated dates, and the
-  full description (rendered the same as Jira shows it), plus a link to
-  open the issue directly in Jira. Fetched live on click (not cached from
-  the board's own poll, which only carries the handful of fields the board
-  itself needs), so it's always current. A drag-and-drop move doesn't
-  trigger it - only a plain click.
+  priority, assignee, reporter, labels, due date, created/updated dates,
+  and the full description (rendered the same as Jira shows it), plus a
+  link to open the issue directly in Jira. Fetched live on click (not
+  cached from the board's own poll, which only carries the handful of
+  fields the board itself needs), so it's always current. A drag-and-drop
+  move doesn't trigger it - only a plain click.
+- **Edit** (✎ button in the popup) lets you change the summary and
+  description right there, written straight back to Jira. The
+  description you see is Jira's own rendered HTML, not the original
+  source - editing converts it to plain text, so rich formatting (bold,
+  links, lists, ...) becomes plain paragraphs *if you actually touch that
+  field*. Only editing the summary leaves the description completely
+  untouched, formatting included - the card only ever sends back what you
+  actually edited.
+- **Add a comment** from the popup - plain text only, no rich-text editor.
+  Existing comments aren't shown here (by design, to keep the popup
+  focused) - this is a one-way "leave a note" box, not a comment thread.
 - **"+ Aufgabe hinzufügen"** input at the bottom of every column creates a
   brand new Jira issue directly from the board (see below for which
   project it lands in). Typed inside a specific Epic's lane (Group by
@@ -168,10 +179,10 @@ currently a fork-it-yourself change, not a config option.
   way. Something in HA's own card-wrapper layout (outside this card's own
   shadow DOM, so unreachable from its CSS) appears to block
   `position: sticky` regardless of view type - not investigated further.
-- No sync of summary/description edits after creation - status/column
-  only. The board can *show* description, priority, due date, assignee,
-  reporter and labels (read-only), but nothing on the board writes any
-  of those back to Jira.
+- Summary/description can be edited from the details popup (see Card
+  features above), and you can add a comment - everything else
+  (priority, due date, assignee, reporter, labels) is still read-only:
+  shown on the board/popup, but nothing writes those back to Jira.
 - `Done` issues older than 14 days drop off the board (`const.py:
   DONE_RETENTION_DAYS`) so it doesn't accumulate forever.
 

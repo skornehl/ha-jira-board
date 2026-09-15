@@ -37,12 +37,36 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["todo"]
 
 SERVICE_GET_ISSUE = "get_issue"
+SERVICE_UPDATE_ISSUE = "update_issue"
+SERVICE_ADD_COMMENT = "add_comment"
 ATTR_ISSUE_KEY = "issue_key"
 ATTR_BOARD_ENTITY_ID = "board_entity_id"
+ATTR_SUMMARY = "summary"
+ATTR_DESCRIPTION = "description"
+ATTR_COMMENT = "comment"
 GET_ISSUE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ISSUE_KEY): cv.string,
         vol.Optional(ATTR_BOARD_ENTITY_ID): cv.entity_id,
+    }
+)
+UPDATE_ISSUE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ISSUE_KEY): cv.string,
+        vol.Optional(ATTR_BOARD_ENTITY_ID): cv.entity_id,
+        vol.Required(ATTR_SUMMARY): cv.string,
+        # Optional and distinct from "" on purpose: omitted means "leave
+        # the description untouched", "" means "clear it" - see
+        # JiraClient.update_issue's docstring for why the card only ever
+        # sends this when its textarea was actually edited.
+        vol.Optional(ATTR_DESCRIPTION): cv.string,
+    }
+)
+ADD_COMMENT_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ISSUE_KEY): cv.string,
+        vol.Optional(ATTR_BOARD_ENTITY_ID): cv.entity_id,
+        vol.Required(ATTR_COMMENT): cv.string,
     }
 )
 
@@ -53,7 +77,7 @@ GET_ISSUE_SCHEMA = vol.Schema(
 # serving a stale cached copy despite cache_headers=False below (that flag
 # only affects HA's own response headers, not whatever caching heuristics
 # the browser decides to apply on its own).
-CARD_VERSION = "16"
+CARD_VERSION = "17"
 CARD_URL_PATH = f"/{DOMAIN}_static/jira-board-card.js"
 
 
@@ -113,23 +137,49 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 
 
 async def _async_register_services(hass: HomeAssistant) -> None:
-    """Register the `get_issue` service backing the card's detail popup.
+    """Register the services backing the card's detail popup (fetching,
+    editing, and commenting on a single issue).
 
     Domain-level (not per-entry/per-entity) and registered once, same
     idempotency reasoning as _async_register_frontend - a second
-    account/board must not try to register it twice.
+    account/board must not try to register them twice.
     """
     if hass.services.has_service(DOMAIN, SERVICE_GET_ISSUE):
         return
 
     async def _async_get_issue(call: ServiceCall) -> ServiceResponse:
-        client = _resolve_client(hass, call.data.get(ATTR_BOARD_ENTITY_ID))
+        coordinator = _resolve_coordinator(hass, call.data.get(ATTR_BOARD_ENTITY_ID))
         issue_key = call.data[ATTR_ISSUE_KEY]
         try:
-            issue = await client.get_issue(issue_key)
+            issue = await coordinator.client.get_issue(issue_key)
         except JiraApiError as err:
             raise HomeAssistantError(f"Could not fetch {issue_key}: {err}") from err
-        return format_issue_for_card(issue, client.base_url)
+        return format_issue_for_card(issue, coordinator.client.base_url)
+
+    async def _async_update_issue(call: ServiceCall) -> None:
+        coordinator = _resolve_coordinator(hass, call.data.get(ATTR_BOARD_ENTITY_ID))
+        issue_key = call.data[ATTR_ISSUE_KEY]
+        try:
+            await coordinator.client.update_issue(
+                issue_key,
+                call.data[ATTR_SUMMARY],
+                description=call.data.get(ATTR_DESCRIPTION),
+            )
+        except JiraApiError as err:
+            raise HomeAssistantError(f"Could not update {issue_key}: {err}") from err
+        # The card shows "KEY  summary" straight from the coordinator's
+        # cached data - without this, a renamed issue would only catch up
+        # on the board itself after the next scan_interval poll, even
+        # though the popup that just saved it already shows the new text.
+        await coordinator.async_request_refresh()
+
+    async def _async_add_comment(call: ServiceCall) -> None:
+        coordinator = _resolve_coordinator(hass, call.data.get(ATTR_BOARD_ENTITY_ID))
+        issue_key = call.data[ATTR_ISSUE_KEY]
+        try:
+            await coordinator.client.add_comment(issue_key, call.data[ATTR_COMMENT])
+        except JiraApiError as err:
+            raise HomeAssistantError(f"Could not comment on {issue_key}: {err}") from err
 
     hass.services.async_register(
         DOMAIN,
@@ -138,10 +188,18 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=GET_ISSUE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+    hass.services.async_register(
+        DOMAIN, SERVICE_UPDATE_ISSUE, _async_update_issue, schema=UPDATE_ISSUE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_ADD_COMMENT, _async_add_comment, schema=ADD_COMMENT_SCHEMA
+    )
 
 
-def _resolve_client(hass: HomeAssistant, board_entity_id: str | None) -> JiraClient:
-    """Pick which configured board's Jira client should serve this call.
+def _resolve_coordinator(
+    hass: HomeAssistant, board_entity_id: str | None
+) -> JiraBoardCoordinator:
+    """Pick which configured board should serve this call.
 
     The card always passes its own column entity's ID along, so a second
     board (second config entry, e.g. a different Jira site - see the
@@ -154,10 +212,10 @@ def _resolve_client(hass: HomeAssistant, board_entity_id: str | None) -> JiraCli
     if board_entity_id:
         entity = er.async_get(hass).async_get(board_entity_id)
         if entity and entity.config_entry_id in coordinators:
-            return coordinators[entity.config_entry_id].client
+            return coordinators[entity.config_entry_id]
     if not coordinators:
         raise HomeAssistantError("No Jira Board configured")
-    return next(iter(coordinators.values())).client
+    return next(iter(coordinators.values()))
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

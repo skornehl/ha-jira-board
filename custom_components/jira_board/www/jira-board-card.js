@@ -401,6 +401,90 @@ class JiraBoardCard extends HTMLElement {
           color: var(--primary-color, #03a9f4);
         }
         .modal-error { color: var(--error-color, #db4437); }
+        .modal-title-row {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .modal-edit-btn {
+          flex: 0 0 auto;
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 4px;
+          background: transparent;
+          color: var(--primary-text-color);
+          cursor: pointer;
+          padding: 3px 8px;
+          font-size: 0.85em;
+          line-height: 1.4;
+        }
+        .modal-edit-label {
+          display: block;
+          font-size: 0.8em;
+          opacity: 0.65;
+          margin: 12px 0 3px;
+        }
+        .modal-edit-input,
+        .modal-edit-textarea,
+        .modal-comment textarea {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 4px;
+          padding: 6px 8px;
+          font: inherit;
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+        }
+        .modal-edit-textarea,
+        .modal-comment textarea {
+          resize: vertical;
+        }
+        .modal-edit-actions,
+        .modal-comment {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 10px;
+        }
+        .modal-comment {
+          flex-direction: column;
+          align-items: stretch;
+          border-top: 1px solid var(--divider-color, #e0e0e0);
+          padding-top: 12px;
+        }
+        .modal-comment-btn {
+          align-self: flex-end;
+        }
+        .modal-save-btn,
+        .modal-comment-btn {
+          border: none;
+          border-radius: 4px;
+          background: var(--primary-color, #03a9f4);
+          color: var(--text-primary-color, #fff);
+          padding: 6px 14px;
+          cursor: pointer;
+          font-size: 0.9em;
+        }
+        .modal-save-btn:disabled,
+        .modal-comment-btn:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .modal-cancel-btn {
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 4px;
+          background: transparent;
+          color: var(--primary-text-color);
+          padding: 6px 14px;
+          cursor: pointer;
+          font-size: 0.9em;
+        }
+        .modal-edit-status,
+        .modal-comment-status {
+          font-size: 0.85em;
+          opacity: 0.75;
+        }
       </style>
       <ha-card>
         <div class="toolbar">
@@ -833,34 +917,65 @@ class JiraBoardCard extends HTMLElement {
   async _openDetails(item, entityId) {
     if (!this._hass || !this._modalBackdropEl) return;
     this._modalBackdropEl.hidden = false;
+    this._modalKey = item.key;
+    this._modalEntityId = entityId;
     this._modalBodyEl.innerHTML = "<em>Lade …</em>";
+    await this._loadModalData();
+  }
+
+  // Split out from _openDetails so saving an edit or posting a comment can
+  // cheaply reload the popup with fresh data afterwards, the same way
+  // opening it the first time does - both end up back in view mode
+  // showing whatever Jira now actually has.
+  async _loadModalData() {
+    const key = this._modalKey;
     try {
       const resp = await this._hass.callWS({
         type: "call_service",
         domain: "jira_board",
         service: "get_issue",
-        service_data: { issue_key: item.key, board_entity_id: entityId },
+        service_data: { issue_key: key, board_entity_id: this._modalEntityId },
         return_response: true,
       });
-      // Guard against the modal having been closed (or reopened for a
-      // *different* card) while this fetch was still in flight.
-      if (this._modalBackdropEl.hidden) return;
+      // Guard against the modal having been closed, or reopened for a
+      // *different* card, while this fetch was still in flight.
+      if (this._modalBackdropEl.hidden || this._modalKey !== key) return;
       const data = resp?.response;
       if (!data) throw new Error("empty response");
-      this._renderModalContent(data);
+      this._modalData = data;
+      this._renderModalView();
     } catch (err) {
-      if (this._modalBackdropEl.hidden) return;
+      if (this._modalBackdropEl.hidden || this._modalKey !== key) return;
       this._modalBodyEl.innerHTML =
-        `<div class="modal-error">Details für ${this._escapeHtml(item.key)} ` +
+        `<div class="modal-error">Details für ${this._escapeHtml(key)} ` +
         `konnten nicht geladen werden.</div>`;
     }
   }
 
   _closeModal() {
     if (this._modalBackdropEl) this._modalBackdropEl.hidden = true;
+    this._modalData = null;
+    this._modalKey = null;
   }
 
-  _renderModalContent(data) {
+  // Strips the pre-rendered description HTML (see get_issue's
+  // expand=renderedFields) down to plain text for the edit textarea -
+  // the only source ever fetched for a description is this rendered
+  // HTML, never the original Atlassian Document Format, so this is a
+  // deliberately lossy approximation (rich formatting - bold, links,
+  // lists, ... - collapses to plain paragraphs). Acceptable for a card
+  // that doesn't offer rich-text editing in the first place; see
+  // _renderModalEdit for how this bounds what actually gets saved back.
+  _htmlToPlainText(html) {
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    div.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+    div.querySelectorAll("p, li, h1, h2, h3, h4, blockquote").forEach((el) => el.append("\n"));
+    return div.textContent.replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  _renderModalView() {
+    const data = this._modalData;
     const esc = (s) => this._escapeHtml(s);
     const person = (p) => (p?.name ? esc(p.name) : "–");
     const fmtDate = (iso) => {
@@ -884,7 +999,10 @@ class JiraBoardCard extends HTMLElement {
     // and goes through esc() above.
     this._modalBodyEl.innerHTML = `
       <div class="modal-key">${esc(data.key)}${data.issue_type ? " · " + esc(data.issue_type) : ""}</div>
-      <h2>${esc(data.summary)}</h2>
+      <div class="modal-title-row">
+        <h2>${esc(data.summary)}</h2>
+        <button class="modal-edit-btn" title="Bearbeiten">✎ Bearbeiten</button>
+      </div>
       <div class="modal-meta">
         <div><span class="label">Status</span>${esc(data.status) || "–"}</div>
         <div><span class="label">Projekt</span>${esc(data.project) || "–"}</div>
@@ -898,7 +1016,100 @@ class JiraBoardCard extends HTMLElement {
       ${labels ? `<div class="modal-labels">${labels}</div>` : ""}
       <div class="modal-description">${data.description_html || "<em>Keine Beschreibung</em>"}</div>
       <a class="modal-link" href="${esc(data.url)}" target="_blank" rel="noopener noreferrer">In Jira öffnen ↗</a>
+      <div class="modal-comment">
+        <label class="modal-edit-label" for="jbc-comment-${esc(data.key)}">Kommentar hinzufügen</label>
+        <textarea id="jbc-comment-${esc(data.key)}" rows="2" placeholder="Kommentar …"></textarea>
+        <button class="modal-comment-btn">Senden</button>
+        <span class="modal-comment-status"></span>
+      </div>
     `;
+
+    this._modalBodyEl
+      .querySelector(".modal-edit-btn")
+      .addEventListener("click", () => this._renderModalEdit());
+
+    const commentInput = this._modalBodyEl.querySelector(".modal-comment textarea");
+    const commentBtn = this._modalBodyEl.querySelector(".modal-comment-btn");
+    const commentStatus = this._modalBodyEl.querySelector(".modal-comment-status");
+    commentBtn.addEventListener("click", async () => {
+      const text = commentInput.value.trim();
+      if (!text) return;
+      commentBtn.disabled = true;
+      commentStatus.textContent = "Sende …";
+      try {
+        await this._hass.callService("jira_board", "add_comment", {
+          issue_key: data.key,
+          board_entity_id: this._modalEntityId,
+          comment: text,
+        });
+        commentInput.value = "";
+        commentStatus.textContent = "Gesendet ✓";
+        setTimeout(() => {
+          commentStatus.textContent = "";
+        }, 3000);
+      } catch (err) {
+        commentStatus.textContent = "Fehlgeschlagen";
+      } finally {
+        commentBtn.disabled = false;
+      }
+    });
+  }
+
+  _renderModalEdit() {
+    const data = this._modalData;
+    const esc = (s) => this._escapeHtml(s);
+    const originalDescription = this._htmlToPlainText(data.description_html || "");
+    this._modalBodyEl.innerHTML = `
+      <div class="modal-key">${esc(data.key)}${data.issue_type ? " · " + esc(data.issue_type) : ""}</div>
+      <label class="modal-edit-label" for="jbc-edit-summary">Titel</label>
+      <input id="jbc-edit-summary" type="text" class="modal-edit-input" value="${esc(data.summary)}" />
+      <label class="modal-edit-label" for="jbc-edit-description">Beschreibung</label>
+      <textarea id="jbc-edit-description" class="modal-edit-textarea" rows="6">${esc(originalDescription)}</textarea>
+      <div class="modal-edit-actions">
+        <button class="modal-save-btn">Speichern</button>
+        <button class="modal-cancel-btn">Abbrechen</button>
+        <span class="modal-edit-status"></span>
+      </div>
+    `;
+    const summaryInput = this._modalBodyEl.querySelector("#jbc-edit-summary");
+    const descTextarea = this._modalBodyEl.querySelector("#jbc-edit-description");
+    const saveBtn = this._modalBodyEl.querySelector(".modal-save-btn");
+    const statusEl = this._modalBodyEl.querySelector(".modal-edit-status");
+
+    this._modalBodyEl
+      .querySelector(".modal-cancel-btn")
+      .addEventListener("click", () => this._renderModalView());
+
+    saveBtn.addEventListener("click", async () => {
+      const newSummary = summaryInput.value.trim();
+      if (!newSummary) {
+        statusEl.textContent = "Titel darf nicht leer sein";
+        return;
+      }
+      const payload = {
+        issue_key: data.key,
+        board_entity_id: this._modalEntityId,
+        summary: newSummary,
+      };
+      // Only re-send the description if this textarea was actually
+      // touched - see JiraClient.update_issue's docstring for why: the
+      // plain-text shown here is already a lossy approximation of
+      // whatever rich formatting the description originally had, and
+      // sending it back unconditionally would flatten that formatting
+      // even on an edit that only meant to fix the summary.
+      if (descTextarea.value !== originalDescription) {
+        payload.description = descTextarea.value;
+      }
+      saveBtn.disabled = true;
+      statusEl.textContent = "Speichere …";
+      try {
+        await this._hass.callService("jira_board", "update_issue", payload);
+        await this._loadModalData();
+      } catch (err) {
+        statusEl.textContent = "Speichern fehlgeschlagen";
+        saveBtn.disabled = false;
+      }
+    });
   }
 
   _onDrop(targetEntity) {

@@ -192,6 +192,57 @@ class JiraClient:
             f"/rest/api/3/issue/{issue_key}?fields={fields}&expand=renderedFields",
         )
 
+    async def update_issue(
+        self, issue_key: str, summary: str, description: str | None = None
+    ) -> None:
+        """Overwrite an issue's summary and (optionally) description.
+
+        `summary` is always sent - the popup's edit form always shows it,
+        so there's never a reason to omit it. `description` is only
+        touched when the caller actually passed one: the popup only
+        includes it in the request when its textarea was actually edited
+        (see jira-board-card.js), precisely to avoid this round-trip
+        silently flattening the original description's rich formatting
+        (bold, links, lists, ...) into plain paragraphs just because the
+        user only meant to fix a typo in the summary - see _text_to_adf.
+        """
+        fields: dict[str, Any] = {"summary": summary}
+        if description is not None:
+            fields["description"] = _text_to_adf(description) if description else None
+        await self._request("PUT", f"/rest/api/3/issue/{issue_key}", json={"fields": fields})
+
+    async def add_comment(self, issue_key: str, text: str) -> None:
+        """Post a plain-text comment - no rich-text editor is offered for
+        this, so `text` always goes through the same minimal ADF wrapping
+        as a plain-text description edit."""
+        await self._request(
+            "POST",
+            f"/rest/api/3/issue/{issue_key}/comment",
+            json={"body": _text_to_adf(text)},
+        )
+
+
+def _text_to_adf(text: str) -> dict[str, Any]:
+    """Wrap plain text in a minimal Atlassian Document Format (ADF) doc -
+    one paragraph per line. Jira Cloud's *write* API requires
+    description/comment bodies in ADF rather than plain text (the reverse
+    of the read side, where expand=renderedFields hands back plain HTML
+    instead) - this card offers no rich-text editing, so a paragraph-per-
+    line structure is deliberately the full extent of it, just enough for
+    Jira to accept the write and show something reasonable afterwards.
+    """
+    lines = text.split("\n")
+    return {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": line}]}
+            if line
+            else {"type": "paragraph"}
+            for line in lines
+        ],
+    }
+
 
 def format_issue_for_card(issue: dict[str, Any], base_url: str) -> dict[str, Any]:
     """Flatten a raw `get_issue` response into the plain shape the card's
