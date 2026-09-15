@@ -98,7 +98,15 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
         # an Epic with zero cards currently on the board would otherwise
         # never get a lane, since todo_items only carries epic info for
         # issues that actually have a parent Epic.
-        return {"all_epics": self.coordinator.all_epics}
+        return {
+            "all_epics": self.coordinator.all_epics,
+            # Same reasoning as all_epics above - rides along so the
+            # details popup's edit-mode priority dropdown (jira-board-
+            # card.js) has real, site-configured options instead of
+            # guessing at the standard Highest/High/Medium/Low/Lowest set,
+            # which custom Jira workflows aren't guaranteed to use.
+            "all_priorities": self.coordinator.all_priorities,
+        }
 
     @property
     def todo_items(self) -> list[TodoItem]:

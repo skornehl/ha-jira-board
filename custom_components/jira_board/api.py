@@ -165,11 +165,15 @@ class JiraClient:
         """Fetch one issue's full details, for the card's click-to-detail popup.
 
         Only the fields the popup actually shows are requested (cheap,
-        avoids ever pulling e.g. attachments/comments by accident).
-        `expand=renderedFields` gets `description` back as ready-to-display
-        HTML instead of Jira's Atlassian Document Format (ADF) JSON tree -
-        avoids needing an ADF renderer for what is otherwise a one-field,
-        one-popup use.
+        avoids ever pulling e.g. attachments by accident). `comment` is
+        included so the popup can show existing comments, not just let
+        you add new ones blind - Jira's default page size for the
+        embedded `comment` field (not the dedicated, paginated /comment
+        endpoint) is plenty for how this board is actually used.
+        `expand=renderedFields` gets `description` (and each comment's
+        body) back as ready-to-display HTML instead of Jira's Atlassian
+        Document Format (ADF) JSON tree - avoids needing an ADF renderer
+        client-side.
         """
         fields = ",".join(
             [
@@ -185,6 +189,7 @@ class JiraClient:
                 "duedate",
                 "created",
                 "updated",
+                "comment",
             ]
         )
         return await self._request(
@@ -192,10 +197,23 @@ class JiraClient:
             f"/rest/api/3/issue/{issue_key}?fields={fields}&expand=renderedFields",
         )
 
+    async def list_priorities(self) -> list[dict[str, str]]:
+        """List every priority configured on this Jira site, for the
+        details popup's edit-mode priority dropdown (not per-project - a
+        plain GET returning the whole array, no pagination)."""
+        data = await self._request("GET", "/rest/api/3/priority")
+        return [{"name": p["name"], "icon_url": p.get("iconUrl")} for p in data]
+
     async def update_issue(
-        self, issue_key: str, summary: str, description: str | None = None
+        self,
+        issue_key: str,
+        summary: str,
+        description: str | None = None,
+        priority: str | None = None,
+        due_date: str | None = None,
     ) -> None:
-        """Overwrite an issue's summary and (optionally) description.
+        """Overwrite an issue's summary and (optionally) description,
+        priority, and/or due date.
 
         `summary` is always sent - the popup's edit form always shows it,
         so there's never a reason to omit it. `description` is only
@@ -205,10 +223,20 @@ class JiraClient:
         silently flattening the original description's rich formatting
         (bold, links, lists, ...) into plain paragraphs just because the
         user only meant to fix a typo in the summary - see _text_to_adf.
+
+        `priority` and `due_date` carry no such round-trip risk (both are
+        plain scalars, never lossy) so the popup always sends its current
+        form values for these two regardless of whether they changed.
+        `due_date` is `""` to clear it, a `"YYYY-MM-DD"` string to set it,
+        or omitted/None to leave it untouched.
         """
         fields: dict[str, Any] = {"summary": summary}
         if description is not None:
             fields["description"] = _text_to_adf(description) if description else None
+        if priority is not None:
+            fields["priority"] = {"name": priority}
+        if due_date is not None:
+            fields["duedate"] = due_date or None
         await self._request("PUT", f"/rest/api/3/issue/{issue_key}", json={"fields": fields})
 
     async def add_comment(self, issue_key: str, text: str) -> None:
@@ -264,6 +292,26 @@ def format_issue_for_card(issue: dict[str, Any], base_url: str) -> dict[str, Any
     fields = issue.get("fields", {})
     rendered = issue.get("renderedFields", {})
     priority = fields.get("priority")
+
+    # Comments come back twice in parallel - fields.comment.comments has
+    # the raw ADF body, renderedFields.comment.comments has the same list
+    # pre-rendered to HTML (same relationship as description/
+    # description_html above). Matched up by id since that's the only
+    # thing guaranteed to line up between the two lists.
+    raw_comments = (fields.get("comment") or {}).get("comments", [])
+    rendered_by_id = {
+        c.get("id"): c.get("body")
+        for c in (rendered.get("comment") or {}).get("comments", [])
+    }
+    comments = [
+        {
+            "author": (c.get("author") or {}).get("displayName"),
+            "created": c.get("created"),
+            "body_html": rendered_by_id.get(c.get("id")) or "",
+        }
+        for c in raw_comments
+    ]
+
     return {
         "key": issue["key"],
         "url": f"{base_url}/browse/{issue['key']}",
@@ -280,4 +328,5 @@ def format_issue_for_card(issue: dict[str, Any], base_url: str) -> dict[str, Any
         "created": fields.get("created"),
         "updated": fields.get("updated"),
         "description_html": rendered.get("description") or "",
+        "comments": comments,
     }

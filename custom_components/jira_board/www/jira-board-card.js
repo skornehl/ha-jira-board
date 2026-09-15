@@ -456,6 +456,36 @@ class JiraBoardCard extends HTMLElement {
         .modal-comment-btn {
           align-self: flex-end;
         }
+        .modal-comment-empty {
+          font-size: 0.85em;
+          opacity: 0.6;
+          margin: 2px 0 4px;
+        }
+        .modal-comment-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          max-height: 220px;
+          overflow-y: auto;
+          margin-bottom: 4px;
+        }
+        .modal-comment-item {
+          background: var(--secondary-background-color, #f5f5f5);
+          border-radius: 6px;
+          padding: 6px 9px;
+        }
+        .modal-comment-meta {
+          font-size: 0.78em;
+          opacity: 0.6;
+          margin-bottom: 2px;
+        }
+        .modal-comment-body {
+          font-size: 0.88em;
+          line-height: 1.4;
+          word-wrap: break-word;
+        }
+        .modal-comment-body :first-child { margin-top: 0; }
+        .modal-comment-body :last-child { margin-bottom: 0; }
         .modal-save-btn,
         .modal-comment-btn {
           border: none;
@@ -714,6 +744,14 @@ class JiraBoardCard extends HTMLElement {
   _allEpics() {
     const first = this._config.columns[0];
     return this._hass?.states[first.entity]?.attributes?.all_epics || [];
+  }
+
+  // This Jira site's configured priorities, for the details popup's
+  // edit-mode dropdown - same rides-along-on-every-column mechanism as
+  // _allEpics above.
+  _allPriorities() {
+    const first = this._config.columns[0];
+    return this._hass?.states[first.entity]?.attributes?.all_priorities || [];
   }
 
   _epicsPresent() {
@@ -1017,6 +1055,8 @@ class JiraBoardCard extends HTMLElement {
       <div class="modal-description">${data.description_html || "<em>Keine Beschreibung</em>"}</div>
       <a class="modal-link" href="${esc(data.url)}" target="_blank" rel="noopener noreferrer">In Jira öffnen ↗</a>
       <div class="modal-comment">
+        <label class="modal-edit-label">Kommentare</label>
+        ${this._renderCommentList(data.comments, fmtDate)}
         <label class="modal-edit-label" for="jbc-comment-${esc(data.key)}">Kommentar hinzufügen</label>
         <textarea id="jbc-comment-${esc(data.key)}" rows="2" placeholder="Kommentar …"></textarea>
         <button class="modal-comment-btn">Senden</button>
@@ -1042,29 +1082,70 @@ class JiraBoardCard extends HTMLElement {
           board_entity_id: this._modalEntityId,
           comment: text,
         });
-        commentInput.value = "";
-        commentStatus.textContent = "Gesendet ✓";
-        setTimeout(() => {
-          commentStatus.textContent = "";
-        }, 3000);
+        // Reload rather than just clearing the textarea + a status
+        // message: showing the new comment actually appear in the list
+        // above is the real confirmation it worked, not a text that
+        // fades away again 3 seconds later - see the "I don't see my
+        // comment" report this replaced.
+        await this._loadModalData();
       } catch (err) {
         commentStatus.textContent = "Fehlgeschlagen";
-      } finally {
         commentBtn.disabled = false;
       }
     });
+  }
+
+  // data.comments is [], not present, or a real list - all handled the
+  // same, empty just renders no items under the "Kommentare" label.
+  _renderCommentList(comments, fmtDate) {
+    if (!comments || comments.length === 0) {
+      return `<div class="modal-comment-empty"><em>Noch keine Kommentare</em></div>`;
+    }
+    return (
+      `<div class="modal-comment-list">` +
+      comments
+        .map(
+          (c) => `
+        <div class="modal-comment-item">
+          <div class="modal-comment-meta">${this._escapeHtml(c.author || "?")} · ${fmtDate(c.created)}</div>
+          <div class="modal-comment-body">${c.body_html || ""}</div>
+        </div>`
+        )
+        .join("") +
+      `</div>`
+    );
   }
 
   _renderModalEdit() {
     const data = this._modalData;
     const esc = (s) => this._escapeHtml(s);
     const originalDescription = this._htmlToPlainText(data.description_html || "");
+
+    // Priority is a dropdown of this Jira site's actual configured
+    // priorities (todo.py's extra_state_attributes), not a hardcoded
+    // Highest/High/Medium/Low/Lowest guess - falls back to just the
+    // issue's current value if that list hasn't loaded yet/failed, so
+    // Save can never accidentally overwrite it with the wrong thing.
+    const priorities = this._allPriorities();
+    const priorityOptions = (
+      priorities.length ? priorities.map((p) => p.name) : [data.priority].filter(Boolean)
+    )
+      .map(
+        (name) =>
+          `<option value="${esc(name)}"${name === data.priority ? " selected" : ""}>${esc(name)}</option>`
+      )
+      .join("");
+
     this._modalBodyEl.innerHTML = `
       <div class="modal-key">${esc(data.key)}${data.issue_type ? " · " + esc(data.issue_type) : ""}</div>
       <label class="modal-edit-label" for="jbc-edit-summary">Titel</label>
       <input id="jbc-edit-summary" type="text" class="modal-edit-input" value="${esc(data.summary)}" />
       <label class="modal-edit-label" for="jbc-edit-description">Beschreibung</label>
       <textarea id="jbc-edit-description" class="modal-edit-textarea" rows="6">${esc(originalDescription)}</textarea>
+      <label class="modal-edit-label" for="jbc-edit-priority">Priorität</label>
+      <select id="jbc-edit-priority" class="modal-edit-input">${priorityOptions}</select>
+      <label class="modal-edit-label" for="jbc-edit-duedate">Fällig</label>
+      <input id="jbc-edit-duedate" type="date" class="modal-edit-input" value="${esc(data.due_date || "")}" />
       <div class="modal-edit-actions">
         <button class="modal-save-btn">Speichern</button>
         <button class="modal-cancel-btn">Abbrechen</button>
@@ -1073,6 +1154,8 @@ class JiraBoardCard extends HTMLElement {
     `;
     const summaryInput = this._modalBodyEl.querySelector("#jbc-edit-summary");
     const descTextarea = this._modalBodyEl.querySelector("#jbc-edit-description");
+    const prioritySelect = this._modalBodyEl.querySelector("#jbc-edit-priority");
+    const dueDateInput = this._modalBodyEl.querySelector("#jbc-edit-duedate");
     const saveBtn = this._modalBodyEl.querySelector(".modal-save-btn");
     const statusEl = this._modalBodyEl.querySelector(".modal-edit-status");
 
@@ -1090,6 +1173,11 @@ class JiraBoardCard extends HTMLElement {
         issue_key: data.key,
         board_entity_id: this._modalEntityId,
         summary: newSummary,
+        // Unlike description below, priority/due date are plain scalars
+        // with no lossy round-trip risk, so always sent as-is - see
+        // JiraClient.update_issue's docstring.
+        priority: prioritySelect.value,
+        due_date: dueDateInput.value,
       };
       // Only re-send the description if this textarea was actually
       // touched - see JiraClient.update_issue's docstring for why: the

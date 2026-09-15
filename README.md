@@ -113,17 +113,18 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   cached from the board's own poll, which only carries the handful of
   fields the board itself needs), so it's always current. A drag-and-drop
   move doesn't trigger it - only a plain click.
-- **Edit** (✎ button in the popup) lets you change the summary and
-  description right there, written straight back to Jira. The
-  description you see is Jira's own rendered HTML, not the original
-  source - editing converts it to plain text, so rich formatting (bold,
-  links, lists, ...) becomes plain paragraphs *if you actually touch that
-  field*. Only editing the summary leaves the description completely
-  untouched, formatting included - the card only ever sends back what you
-  actually edited.
-- **Add a comment** from the popup - plain text only, no rich-text editor.
-  Existing comments aren't shown here (by design, to keep the popup
-  focused) - this is a one-way "leave a note" box, not a comment thread.
+- **Edit** (✎ button in the popup) lets you change summary, description,
+  priority, and due date right there, written straight back to Jira.
+  Priority is a dropdown of this Jira site's actual configured priorities
+  (fetched live, not a hardcoded guess). The description you see is
+  Jira's own rendered HTML, not the original source - editing converts it
+  to plain text, so rich formatting (bold, links, lists, ...) becomes
+  plain paragraphs *if you actually touch that field*. Only editing the
+  summary/priority/due date leaves the description completely untouched,
+  formatting included - the card only ever re-sends the description if
+  you actually edited it.
+- **Comments** show in the popup, and you can add your own - plain text
+  only, no rich-text editor.
 - **"+ Aufgabe hinzufügen"** input at the bottom of every column creates a
   brand new Jira issue directly from the board (see below for which
   project it lands in). Typed inside a specific Epic's lane (Group by
@@ -179,10 +180,10 @@ currently a fork-it-yourself change, not a config option.
   way. Something in HA's own card-wrapper layout (outside this card's own
   shadow DOM, so unreachable from its CSS) appears to block
   `position: sticky` regardless of view type - not investigated further.
-- Summary/description can be edited from the details popup (see Card
-  features above), and you can add a comment - everything else
-  (priority, due date, assignee, reporter, labels) is still read-only:
-  shown on the board/popup, but nothing writes those back to Jira.
+- Summary, description, priority and due date can all be edited from the
+  details popup (see Card features above), and you can add a comment -
+  assignee, reporter, and labels are still read-only: shown in the
+  popup, but nothing writes those back to Jira.
 - `Done` issues older than 14 days drop off the board (`const.py:
   DONE_RETENTION_DAYS`) so it doesn't accumulate forever.
 

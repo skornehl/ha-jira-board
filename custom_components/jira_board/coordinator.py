@@ -59,6 +59,14 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
         # since search/jql has no "give me every parent of these issues,
         # even absent ones" mode. [{"key": ..., "name": ..., "project": ...}]
         self.all_epics: list[dict] = []
+        # This Jira site's configured priorities, for the details popup's
+        # edit-mode priority dropdown - site-wide and effectively static,
+        # but fetched on the same poll as everything else rather than
+        # once at startup, same reasoning as all_epics: simplest way to
+        # keep it correct without a separate refresh path, and cheap
+        # enough (one tiny request) not to matter.
+        # [{"name": ..., "icon_url": ...}]
+        self.all_priorities: list[dict] = []
 
     def _jql(self) -> str:
         # issuetype != Epic: Epics themselves have no `parent`, so without
@@ -106,6 +114,14 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
             # epics inferable from items on screen, same as before this
             # feature existed.
             _LOGGER.warning("Fetching Epics failed, keeping previous list: %s", err)
+
+        try:
+            self.all_priorities = await self.client.list_priorities()
+        except JiraApiError as err:
+            # Same non-fatal handling as Epics above - the edit popup's
+            # priority dropdown just temporarily falls back to whatever
+            # it fetched last time (or the issue's own current value).
+            _LOGGER.warning("Fetching priorities failed, keeping previous list: %s", err)
 
         by_column: dict[str, list[dict]] = {c: [] for c in COLUMNS}
         seen: set[str] = set()

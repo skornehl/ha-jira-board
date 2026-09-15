@@ -44,6 +44,8 @@ ATTR_BOARD_ENTITY_ID = "board_entity_id"
 ATTR_SUMMARY = "summary"
 ATTR_DESCRIPTION = "description"
 ATTR_COMMENT = "comment"
+ATTR_PRIORITY = "priority"
+ATTR_DUE_DATE = "due_date"
 GET_ISSUE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ISSUE_KEY): cv.string,
@@ -60,6 +62,11 @@ UPDATE_ISSUE_SCHEMA = vol.Schema(
         # JiraClient.update_issue's docstring for why the card only ever
         # sends this when its textarea was actually edited.
         vol.Optional(ATTR_DESCRIPTION): cv.string,
+        # Unlike description, always sent by the card (never lossy, so
+        # there's no "only if changed" guard) - see JiraClient.
+        # update_issue's docstring.
+        vol.Optional(ATTR_PRIORITY): cv.string,
+        vol.Optional(ATTR_DUE_DATE): cv.string,
     }
 )
 ADD_COMMENT_SCHEMA = vol.Schema(
@@ -77,7 +84,7 @@ ADD_COMMENT_SCHEMA = vol.Schema(
 # serving a stale cached copy despite cache_headers=False below (that flag
 # only affects HA's own response headers, not whatever caching heuristics
 # the browser decides to apply on its own).
-CARD_VERSION = "17"
+CARD_VERSION = "19"
 CARD_URL_PATH = f"/{DOMAIN}_static/jira-board-card.js"
 
 
@@ -164,6 +171,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                 issue_key,
                 call.data[ATTR_SUMMARY],
                 description=call.data.get(ATTR_DESCRIPTION),
+                priority=call.data.get(ATTR_PRIORITY),
+                due_date=call.data.get(ATTR_DUE_DATE),
             )
         except JiraApiError as err:
             raise HomeAssistantError(f"Could not update {issue_key}: {err}") from err
