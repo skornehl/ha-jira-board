@@ -165,7 +165,20 @@ class JiraBoardCard extends HTMLElement {
     root.innerHTML = `
       <style>
         :host { display: block; }
-        ha-card { padding: 12px; }
+        ha-card {
+          padding: 12px;
+          /* HA's own <ha-card> sets overflow: hidden by default (to clip
+             content to its rounded corners) - that alone is enough to
+             disable position: sticky on *any* descendant, since a sticky
+             element can only stick within an ancestor whose overflow is
+             visible. Overriding it from here works because this rule
+             lives in the *outer* card's shadow root (targeting <ha-card>
+             from the outside), which normally wins over ha-card's own
+             internal :host rule. Trade-off: content flush against the
+             very corner pixels could in theory poke past the rounded
+             corner now - not visible in practice with this card's layout. */
+          overflow: visible;
+        }
         .toolbar {
           display: flex;
           align-items: center;
