@@ -173,6 +173,17 @@ class JiraBoardCard extends HTMLElement {
           margin-bottom: 10px;
           font-size: 0.9em;
           color: var(--primary-text-color);
+          /* Stays put while the board (esp. "Gruppieren nach Epic" - many
+             lanes stacked vertically) scrolls past underneath. The card
+             has no scroll container of its own, so this sticks relative
+             to whatever ancestor actually scrolls (normally the dashboard
+             view/page) - a solid background is needed since content keeps
+             scrolling directly beneath it once stuck. */
+          position: sticky;
+          top: 0;
+          z-index: 2;
+          background: var(--card-background-color, #fff);
+          padding: 6px 0;
         }
         .toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
         .board {
