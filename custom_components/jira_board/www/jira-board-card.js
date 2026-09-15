@@ -26,7 +26,7 @@ class JiraBoardCard extends HTMLElement {
   setConfig(config) {
     if (!config.columns || !Array.isArray(config.columns)) {
       throw new Error(
-        "jira-board-card: 'columns' ist erforderlich, z.B. " +
+        "jira-board-card: 'columns' is required, e.g. " +
           "[{entity: 'todo.to_do', title: 'To Do'}, ...]"
       );
     }
@@ -59,6 +59,10 @@ class JiraBoardCard extends HTMLElement {
 
     this._dragItem = null;
     this._itemsByEntity = {};
+    // Deliberately not persisted (unlike groupByEpic/projectFilter above) -
+    // a stale search term silently still filtering the board after a
+    // reload would be far more confusing than useful.
+    this._searchQuery = "";
     this._render();
   }
 
@@ -253,6 +257,15 @@ class JiraBoardCard extends HTMLElement {
           background: var(--card-background-color, #fff);
           color: var(--primary-text-color);
         }
+        input.search-filter {
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 4px;
+          padding: 3px 6px;
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+          font-size: 0.9em;
+          min-width: 140px;
+        }
       </style>
       <ha-card>
         <div class="toolbar">
@@ -264,6 +277,7 @@ class JiraBoardCard extends HTMLElement {
             Projekt:
             <select class="project-filter"><option value="__all__">Alle</option></select>
           </label>
+          <input type="text" class="search-filter" placeholder="Suchen …" />
         </div>
         <div class="board"></div>
       </ha-card>
@@ -277,6 +291,13 @@ class JiraBoardCard extends HTMLElement {
     this._projectSelectEl.addEventListener("change", (e) => {
       this._projectFilter = e.target.value;
       this._savePersisted();
+      this._renderBoard();
+    });
+    // Live/dynamic: filters as you type, no debounce - _renderBoard() only
+    // touches already-fetched _itemsByEntity, no network round-trip, so
+    // there's nothing worth debouncing against.
+    root.querySelector(".search-filter").addEventListener("input", (e) => {
+      this._searchQuery = e.target.value.trim().toLowerCase();
       this._renderBoard();
     });
     this._boardEl = root.querySelector(".board");
@@ -396,6 +417,22 @@ class JiraBoardCard extends HTMLElement {
     return items.filter((i) => i.project === this._projectFilter);
   }
 
+  _matchesSearch(item) {
+    if (!this._searchQuery) return true;
+    return (
+      item.key.toLowerCase().includes(this._searchQuery) ||
+      item.text.toLowerCase().includes(this._searchQuery)
+    );
+  }
+
+  // Project filter + search, combined - the one place both apply together.
+  // Search intentionally isn't folded into _filterByProject itself: the
+  // project dropdown's own option list (_updateProjectOptions -> _allItems)
+  // must stay unaffected by what's currently typed into the search box.
+  _filterItems(items) {
+    return this._filterByProject(items).filter((i) => this._matchesSearch(i));
+  }
+
   // ---- rendering -------------------------------------------------------
 
   _renderBoard() {
@@ -422,17 +459,22 @@ class JiraBoardCard extends HTMLElement {
   _epicsPresent() {
     const epics = new Map(); // key -> name
     for (const col of this._config.columns) {
-      const items = this._filterByProject(this._itemsByEntity[col.entity] || []);
+      const items = this._filterItems(this._itemsByEntity[col.entity] || []);
       for (const item of items) {
         const key = item.epicKey || NO_EPIC;
         if (!epics.has(key)) epics.set(key, item.epicName || "Kein Epic");
       }
     }
     // Merge in empty Epics (no cards on the board at all right now) so
-    // they still get a lane, same project filter as everything else.
-    for (const epic of this._allEpics()) {
-      if (this._projectFilter !== "__all__" && epic.project !== this._projectFilter) continue;
-      if (!epics.has(epic.key)) epics.set(epic.key, epic.name);
+    // they still get a lane, same project filter as everything else - but
+    // only when there's no active search: an Epic with zero cards can
+    // never contain a search hit, so it should disappear like everything
+    // else that doesn't match while searching, not get a free pass.
+    if (!this._searchQuery) {
+      for (const epic of this._allEpics()) {
+        if (this._projectFilter !== "__all__" && epic.project !== this._projectFilter) continue;
+        if (!epics.has(epic.key)) epics.set(epic.key, epic.name);
+      }
     }
     // Real epics first (sorted by key), "Kein Epic" always last.
     const keys = [...epics.keys()].filter((k) => k !== NO_EPIC).sort();
@@ -464,7 +506,7 @@ class JiraBoardCard extends HTMLElement {
     row.style.display = "flex";
     row.style.gap = "14px";
     for (const col of columns) {
-      let items = this._filterByProject(this._itemsByEntity[col.entity] || []);
+      let items = this._filterItems(this._itemsByEntity[col.entity] || []);
       if (epicFilter !== null) {
         items = items.filter((i) => (i.epicKey || NO_EPIC) === epicFilter);
       }

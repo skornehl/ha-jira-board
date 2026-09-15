@@ -134,7 +134,7 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
 
     async def async_create_todo_item(self, item: TodoItem) -> None:
         client = self.coordinator.client
-        summary = item.summary or "Neue Aufgabe"
+        summary = item.summary or "New task"
         match = _KEY_PREFIX_RE.match(summary)
         key = match.group(1) if match else None
         existing_columns = self._known_columns_for(key) if key else []

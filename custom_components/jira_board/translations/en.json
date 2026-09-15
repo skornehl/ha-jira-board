@@ -2,63 +2,63 @@
   "config": {
     "step": {
       "user": {
-        "title": "Jira Board einrichten",
+        "title": "Set up Jira Board",
         "data": {
-          "base_url": "Jira-Basis-URL",
-          "email": "E-Mail",
-          "api_token": "API-Token"
+          "base_url": "Jira base URL",
+          "email": "Email",
+          "api_token": "API token"
         }
       },
       "projects": {
-        "title": "Projekte auswählen",
-        "description": "Welche Jira-Projekte soll das Board erfassen?",
+        "title": "Select projects",
+        "description": "Which Jira projects should the board track?",
         "data": {
-          "projects": "Projekte"
+          "projects": "Projects"
         }
       },
       "default_project": {
-        "title": "Standard-Projekt",
-        "description": "In welches Projekt sollen neue, direkt auf dem Board erstellte Karten fallen?",
+        "title": "Default project",
+        "description": "Which project should new cards created directly on the board land in?",
         "data": {
-          "default_project": "Standard-Projekt"
+          "default_project": "Default project"
         }
       }
     },
     "error": {
-      "invalid_auth": "Anmeldung fehlgeschlagen - E-Mail/Token prüfen",
-      "cannot_connect": "Verbindung zu Jira fehlgeschlagen",
-      "no_projects_found": "Keine Jira-Projekte für diesen Account gefunden",
-      "no_projects_selected": "Bitte mindestens ein Projekt auswählen"
+      "invalid_auth": "Login failed - check email/token",
+      "cannot_connect": "Could not connect to Jira",
+      "no_projects_found": "No Jira projects found for this account",
+      "no_projects_selected": "Please select at least one project"
     },
     "abort": {
-      "already_configured": "Dieser Jira-Account ist bereits eingerichtet"
+      "already_configured": "This Jira account is already configured"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Jira Board – Zugangsdaten",
-        "description": "API-Token leer lassen, um den bisherigen zu behalten.",
+        "title": "Jira Board – Credentials",
+        "description": "Leave the API token empty to keep the current one.",
         "data": {
-          "base_url": "Jira-Basis-URL",
-          "email": "E-Mail",
-          "api_token": "Neuer API-Token (optional)"
+          "base_url": "Jira base URL",
+          "email": "Email",
+          "api_token": "New API token (optional)"
         }
       },
       "projects": {
-        "title": "Jira Board – Projekte ändern",
+        "title": "Jira Board – Change projects",
         "data": {
-          "projects": "Projekte",
-          "default_project": "Standard-Projekt"
+          "projects": "Projects",
+          "default_project": "Default project"
         }
       }
     },
     "error": {
-      "invalid_auth": "Anmeldung fehlgeschlagen - E-Mail/Token prüfen",
-      "cannot_connect": "Verbindung zu Jira fehlgeschlagen",
-      "no_projects_found": "Keine Jira-Projekte für diesen Account gefunden",
-      "no_projects_selected": "Bitte mindestens ein Projekt auswählen",
-      "default_not_in_projects": "Das Standard-Projekt muss eines der ausgewählten Projekte sein"
+      "invalid_auth": "Login failed - check email/token",
+      "cannot_connect": "Could not connect to Jira",
+      "no_projects_found": "No Jira projects found for this account",
+      "no_projects_selected": "Please select at least one project",
+      "default_not_in_projects": "The default project must be one of the selected projects"
     }
   }
 }

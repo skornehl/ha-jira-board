@@ -93,8 +93,13 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
 - **Project filter** dropdown, defaulting to the `project`/`projects`
   config above. Set a different default per dashboard tab to get one board
   per project.
-- Both the Epic toggle and the project filter are **remembered** across
-  page reloads and HA restarts (`localStorage`, scoped per card instance).
+- **Search box** filters cards live as you type (matches ticket key and
+  text). In Group by Epic view, a lane only stays visible if at least one
+  of its cards matches - the Epic itself doesn't need to match, only
+  something inside it. Not persisted across reloads on purpose.
+- The Epic toggle and the project filter are **remembered** across page
+  reloads and HA restarts (`localStorage`, scoped per card instance); the
+  search box intentionally isn't.
 - **"+ Aufgabe hinzufügen"** input at the bottom of every column creates a
   brand new Jira issue directly from the board (see below for which
   project it lands in). Typed inside a specific Epic's lane (Group by
