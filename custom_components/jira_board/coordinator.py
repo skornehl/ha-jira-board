@@ -65,8 +65,14 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
         # once at startup, same reasoning as all_epics: simplest way to
         # keep it correct without a separate refresh path, and cheap
         # enough (one tiny request) not to matter.
-        # [{"name": ..., "icon_url": ...}]
+        # [{"name": ..., "icon_url": ..., "icon_data": ...}]
         self.all_priorities: list[dict] = []
+        # icon_url -> already-fetched data: URI - see _embed_priority_icons.
+        # Priorities/their icons essentially never change, so this is kept
+        # across polls rather than re-fetched every scan_interval; the
+        # handful of tiny requests needed to populate it only ever happen
+        # once per distinct icon for the lifetime of this coordinator.
+        self._priority_icon_cache: dict[str, str] = {}
 
     def _jql(self) -> str:
         # issuetype != Epic: Epics themselves have no `parent`, so without
@@ -116,12 +122,17 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
             _LOGGER.warning("Fetching Epics failed, keeping previous list: %s", err)
 
         try:
-            self.all_priorities = await self.client.list_priorities()
+            self.all_priorities = await self._embed_priority_icons(
+                await self.client.list_priorities()
+            )
         except JiraApiError as err:
             # Same non-fatal handling as Epics above - the edit popup's
             # priority dropdown just temporarily falls back to whatever
             # it fetched last time (or the issue's own current value).
             _LOGGER.warning("Fetching priorities failed, keeping previous list: %s", err)
+        priority_icon_by_name = {
+            p["name"]: p.get("icon_data") or p.get("icon_url") for p in self.all_priorities
+        }
 
         by_column: dict[str, list[dict]] = {c: [] for c in COLUMNS}
         seen: set[str] = set()
@@ -155,6 +166,7 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
                 epic_name = parent["fields"]["summary"]
 
             priority = issue["fields"].get("priority")
+            priority_name = priority.get("name") if priority else None
 
             by_column[column].append(
                 {
@@ -163,8 +175,12 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
                     "project": issue["fields"]["project"]["key"],
                     "epic_key": epic_key,
                     "epic_name": epic_name,
-                    "priority": priority.get("name") if priority else None,
-                    "priority_icon": priority.get("iconUrl") if priority else None,
+                    "priority": priority_name,
+                    # Embedded data: URI (falls back to the plain hotlink
+                    # URL if embedding it failed) - see
+                    # _embed_priority_icons for why this isn't simply
+                    # priority["iconUrl"] anymore.
+                    "priority_icon": priority_icon_by_name.get(priority_name),
                     # Plain "YYYY-MM-DD", no time component - Jira's duedate
                     # field is a date, not a datetime.
                     "due_date": issue["fields"].get("duedate"),
@@ -178,6 +194,42 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
                 self.just_moved.pop(key, None)
 
         return by_column
+
+    async def _embed_priority_icons(self, priorities: list[dict]) -> list[dict]:
+        """Replace each priority's hotlinked `icon_url` with a `data:` URI
+        the frontend can embed directly, adding `icon_data`.
+
+        Fetching a priority icon's URL directly from the browser (a plain
+        <img src="https://...">) turned out unreliable in the wild: it
+        works from this integration's own network path every time, but a
+        real browser loading the exact same URL cross-origin was observed
+        to silently fail (no error surfaced anywhere reachable - the
+        icon just never rendered, removed by its own onerror handler).
+        Embedding it here, where fetching it demonstrably works, avoids
+        the client's network path (ad-blocker, browser extension,
+        DNS/firewall filtering, ...) mattering at all. Cached by URL
+        across polls in self._priority_icon_cache since priorities/their
+        icons essentially never change - each distinct icon is only ever
+        actually fetched once for the coordinator's lifetime.
+        """
+        for p in priorities:
+            icon_url = p.get("icon_url")
+            if not icon_url:
+                continue
+            if icon_url not in self._priority_icon_cache:
+                try:
+                    self._priority_icon_cache[icon_url] = await self.client.fetch_asset_data_uri(
+                        icon_url
+                    )
+                except JiraApiError as err:
+                    _LOGGER.debug(
+                        "Could not embed priority icon %s, falling back to hotlink: %s",
+                        icon_url,
+                        err,
+                    )
+                    continue
+            p["icon_data"] = self._priority_icon_cache[icon_url]
+        return priorities
 
     @staticmethod
     def _status_of(issues: list[dict], key: str) -> str | None:

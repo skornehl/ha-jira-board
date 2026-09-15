@@ -204,6 +204,32 @@ class JiraClient:
         data = await self._request("GET", "/rest/api/3/priority")
         return [{"name": p["name"], "icon_url": p.get("iconUrl")} for p in data]
 
+    async def fetch_asset_data_uri(self, url: str) -> str:
+        """Fetch a small public static asset (a priority's iconUrl) and
+        return it as a `data:` URI, so the frontend can embed it directly
+        instead of the browser hotlinking the URL itself.
+
+        Hotlinking turned out unreliable in practice: this server-side
+        request to the exact same URL always succeeds (verified directly,
+        no auth needed - these assets are public), but a real browser
+        loading it cross-origin was observed to silently fail (no error
+        surfaced anywhere reachable, just an <img> that never renders,
+        removed by its own onerror handler) - something about the
+        client's own network path (ad-blocker, extension, DNS/firewall
+        filtering) blocking it, not anything this integration can fix
+        from the frontend side. Fetching it here, where it demonstrably
+        works, sidesteps the problem entirely. Deliberately doesn't send
+        this client's auth headers - the URL isn't guaranteed to be the
+        same host as `base_url` in general, and these assets don't need
+        auth anyway.
+        """
+        async with self._session.request("GET", url, timeout=TIMEOUT) as resp:
+            if resp.status >= 400:
+                raise JiraApiError(resp.status, (await resp.text())[:200])
+            content_type = resp.headers.get("Content-Type", "image/svg+xml").split(";")[0]
+            data = await resp.read()
+        return f"data:{content_type};base64,{base64.b64encode(data).decode()}"
+
     async def update_issue(
         self,
         issue_key: str,

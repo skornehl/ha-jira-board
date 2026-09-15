@@ -161,7 +161,16 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             issue = await coordinator.client.get_issue(issue_key)
         except JiraApiError as err:
             raise HomeAssistantError(f"Could not fetch {issue_key}: {err}") from err
-        return format_issue_for_card(issue, coordinator.client.base_url)
+        result = format_issue_for_card(issue, coordinator.client.base_url)
+        # Swap the hotlinked priority icon URL for the coordinator's
+        # already-embedded data: URI when available - see coordinator.py's
+        # _embed_priority_icons docstring for why the board's cards don't
+        # hotlink it either.
+        for p in coordinator.all_priorities:
+            if p["name"] == result.get("priority") and p.get("icon_data"):
+                result["priority_icon"] = p["icon_data"]
+                break
+        return result
 
     async def _async_update_issue(call: ServiceCall) -> None:
         coordinator = _resolve_coordinator(hass, call.data.get(ATTR_BOARD_ENTITY_ID))
