@@ -164,20 +164,30 @@ class JiraBoardCard extends HTMLElement {
     const root = this.attachShadow ? (this.shadowRoot || this.attachShadow({ mode: "open" })) : this;
     root.innerHTML = `
       <style>
-        :host { display: block; }
+        /* Keeping the toolbar visible while the board scrolls turned out to
+           need two failed attempts (position: sticky - silently did
+           nothing because ha-card's default overflow: hidden disables
+           sticky on any descendant; then just overriding that overflow -
+           still did nothing, because this dashboard uses a Panel view,
+           where HA gives the card a fixed height + its own inline
+           overflow style that our plain CSS rule couldn't out-specificity)
+           before landing on this: don't use sticky/scroll-tracking at all.
+           Make the card manage its own scrolling - the toolbar sits
+           outside the scrollable area entirely, so there's nothing for it
+           to need to "stick" against. This also works identically in both
+           Panel view (gets a real height from HA, so .board actually gets
+           a scrollbar and the card behaves like a fixed-height panel) and
+           the default Masonry view (no imposed height, so the height: 100%
+           below is inert per the CSS spec and everything just sizes to
+           content exactly as before, page-level scroll and all).
+        */
+        :host { display: flex; flex-direction: column; height: 100%; }
         ha-card {
+          display: flex;
+          flex-direction: column;
+          flex: 1 1 auto;
+          min-height: 0;
           padding: 12px;
-          /* HA's own <ha-card> sets overflow: hidden by default (to clip
-             content to its rounded corners) - that alone is enough to
-             disable position: sticky on *any* descendant, since a sticky
-             element can only stick within an ancestor whose overflow is
-             visible. Overriding it from here works because this rule
-             lives in the *outer* card's shadow root (targeting <ha-card>
-             from the outside), which normally wins over ha-card's own
-             internal :host rule. Trade-off: content flush against the
-             very corner pixels could in theory poke past the rounded
-             corner now - not visible in practice with this card's layout. */
-          overflow: visible;
         }
         .toolbar {
           display: flex;
@@ -186,23 +196,15 @@ class JiraBoardCard extends HTMLElement {
           margin-bottom: 10px;
           font-size: 0.9em;
           color: var(--primary-text-color);
-          /* Stays put while the board (esp. "Gruppieren nach Epic" - many
-             lanes stacked vertically) scrolls past underneath. The card
-             has no scroll container of its own, so this sticks relative
-             to whatever ancestor actually scrolls (normally the dashboard
-             view/page) - a solid background is needed since content keeps
-             scrolling directly beneath it once stuck. */
-          position: sticky;
-          top: 0;
-          z-index: 2;
-          background: var(--card-background-color, #fff);
-          padding: 6px 0;
+          flex: 0 0 auto;
         }
         .toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
         .board {
           display: flex;
           gap: 14px;
-          overflow-x: auto;
+          overflow: auto;
+          flex: 1 1 auto;
+          min-height: 0;
         }
         .lane { margin-bottom: 18px; }
         .lane-title {

@@ -100,6 +100,13 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
 - The Epic toggle and the project filter are **remembered** across page
   reloads and HA restarts (`localStorage`, scoped per card instance); the
   search box intentionally isn't.
+- The toolbar (search, project filter, group-by-epic toggle) always stays
+  visible - the card manages its own scrolling internally rather than
+  relying on the dashboard's page scroll, so the toolbar never scrolls out
+  of view. In a **Panel view** (`panel: true`), the whole card fills the
+  screen and only the board itself scrolls, same as any fixed-height app;
+  in a normal (Masonry) view the card still just grows to fit its content
+  like before.
 - **Click a card** to open a details popup - summary, status, project,
   priority, assignee, reporter, labels, created/updated dates, and the
   full description (rendered the same as Jira shows it), plus a link to
