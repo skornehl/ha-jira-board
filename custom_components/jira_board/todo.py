@@ -186,7 +186,7 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
         try:
             new_key = await client.create_issue(target_project, summary, epic_key=epic_key)
         except JiraApiError as err:
-            _LOGGER.error("Konnte kein Jira-Issue für '%s' anlegen: %s", summary, err)
+            _LOGGER.error("Could not create Jira issue for '%s': %s", summary, err)
             return
         if self._column != COLUMNS[0]:
             await client.transition_to_status(new_key, self._column)
