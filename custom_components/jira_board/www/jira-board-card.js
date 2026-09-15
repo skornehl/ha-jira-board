@@ -258,18 +258,27 @@ class JiraBoardCard extends HTMLElement {
           border-left: 3px solid var(--primary-color, #03a9f4);
         }
         .card-item:active { cursor: grabbing; }
+        .card-top {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          margin-bottom: 2px;
+        }
         .card-key {
           font-weight: 600;
           font-size: 0.85em;
           opacity: 0.7;
-          display: flex;
-          align-items: center;
-          gap: 4px;
         }
         .card-priority {
-          width: 14px;
-          height: 14px;
+          /* Deliberately its own row/opacity, not nested inside
+             .card-key: it used to sit inside that dimmed, small-text
+             element (70% opacity, 14px) and was effectively invisible at
+             a glance - the whole point of showing it on the board at all
+             is to be readable without clicking into the popup. */
+          width: 20px;
+          height: 20px;
           flex: 0 0 auto;
+          opacity: 1;
         }
         .card-text {
           display: flex;
@@ -914,7 +923,7 @@ class JiraBoardCard extends HTMLElement {
           `${this._formatDueDate(item.dueDate)}</span>`
         : "";
       el.innerHTML = item.key
-        ? `<div class="card-key">${priorityHtml}${item.key}</div>` +
+        ? `<div class="card-top">${priorityHtml}<div class="card-key">${item.key}</div></div>` +
           `<div class="card-text">${item.text}${dueHtml}</div>`
         : `<div>${item.text}</div>`;
       // A completed native HTML5 drag normally doesn't also fire a `click`
