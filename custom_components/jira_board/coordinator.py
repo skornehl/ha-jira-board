@@ -155,6 +155,40 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
         avatar_urls.discard(None)
         avatar_data_by_url = {url: await self._embed_asset(url) for url in avatar_urls}
 
+        # A Subtask's `parent` is its Story/Task, not the Epic - team-
+        # managed projects have no separate "Epic Link" field, hierarchy
+        # is entirely `parent` chained (Epic -> Story/Task -> Subtask), so
+        # a Subtask's Epic is its *grandparent*. Without this, any project
+        # that actually uses Subtasks (e.g. HA/"Heimnetz") had every one of
+        # them silently drop into "Kein Epic" despite visibly having one in
+        # Jira - found 2026-09-15. Batch-resolve every non-Epic parent's
+        # own parent once (one extra request per poll, not per issue).
+        intermediate_keys = {
+            issue["fields"]["parent"]["key"]
+            for issue in issues
+            if issue["fields"].get("parent")
+            and issue["fields"]["parent"]["fields"]["issuetype"]["name"] != "Epic"
+        }
+        grandparent_epic_by_key: dict[str, tuple[str, str]] = {}
+        if intermediate_keys:
+            try:
+                parents = await self.client.search_issues(
+                    f"key in ({', '.join(sorted(intermediate_keys))})", ["parent"]
+                )
+                for parent_issue in parents:
+                    grandparent = parent_issue["fields"].get("parent")
+                    if grandparent and grandparent["fields"]["issuetype"]["name"] == "Epic":
+                        grandparent_epic_by_key[parent_issue["key"]] = (
+                            grandparent["key"],
+                            grandparent["fields"]["summary"],
+                        )
+            except JiraApiError as err:
+                # Not fatal - those Subtasks just fall back to "Kein Epic"
+                # this poll, same as before this fix existed.
+                _LOGGER.warning(
+                    "Could not resolve Subtasks' Epics via their parent Story/Task: %s", err
+                )
+
         by_column: dict[str, list[dict]] = {c: [] for c in COLUMNS}
         seen: set[str] = set()
         for issue in issues:
@@ -181,10 +215,15 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
             # Team-managed projects link an Epic via the plain `parent`
             # field (same field a subtask uses for its parent issue) - only
             # treat it as an epic if that's actually what's on the other
-            # end, not e.g. a subtask's parent Story.
+            # end, not e.g. a subtask's parent Story. If it's *not* an
+            # Epic, this might still be a Subtask whose Story/Task we
+            # already resolved one level further up - see
+            # grandparent_epic_by_key above.
             if parent and parent["fields"]["issuetype"]["name"] == "Epic":
                 epic_key = parent["key"]
                 epic_name = parent["fields"]["summary"]
+            elif parent and parent["key"] in grandparent_epic_by_key:
+                epic_key, epic_name = grandparent_epic_by_key[parent["key"]]
 
             priority = issue["fields"].get("priority")
             priority_name = priority.get("name") if priority else None

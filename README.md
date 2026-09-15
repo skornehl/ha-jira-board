@@ -159,7 +159,9 @@ otherwise; each board's own `.board { overflow-x: auto }` keeps a
   einklappen"/"Alle ausklappen"** to collapse/expand every lane currently
   on screen at once, and **"Leere Epics ausblenden"** to hide Epics with
   zero matching cards entirely instead of still giving them an empty
-  lane.
+  lane. Subtasks (parented to a Story/Task rather than directly to the
+  Epic) still land in the right lane - their *grandparent* Epic is
+  resolved too, not just a direct parent.
 - **Priority, due date, assignee and labels** show directly on each card:
   the issue's own priority icon next to its key, its assignee's avatar,
   its due date (if set, in red once overdue), and its labels as small
