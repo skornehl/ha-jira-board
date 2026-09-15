@@ -164,31 +164,21 @@ class JiraBoardCard extends HTMLElement {
     const root = this.attachShadow ? (this.shadowRoot || this.attachShadow({ mode: "open" })) : this;
     root.innerHTML = `
       <style>
-        /* Keeping the toolbar visible while the board scrolls turned out to
-           need two failed attempts (position: sticky - silently did
-           nothing because ha-card's default overflow: hidden disables
-           sticky on any descendant; then just overriding that overflow -
-           still did nothing, because this dashboard uses a Panel view,
-           where HA gives the card a fixed height + its own inline
-           overflow style that our plain CSS rule couldn't out-specificity)
-           before landing on this: don't use sticky/scroll-tracking at all.
-           Make the card manage its own scrolling - the toolbar sits
-           outside the scrollable area entirely, so there's nothing for it
-           to need to "stick" against. This also works identically in both
-           Panel view (gets a real height from HA, so .board actually gets
-           a scrollbar and the card behaves like a fixed-height panel) and
-           the default Masonry view (no imposed height, so the height: 100%
-           below is inert per the CSS spec and everything just sizes to
-           content exactly as before, page-level scroll and all).
+        /* A "sticky toolbar while scrolling" feature was attempted here
+           across three released versions (1.7.1-1.7.3: position: sticky,
+           then overriding ha-card's overflow, then a full flex/height
+           self-scrolling layout) - all three broke or failed to fix
+           anything, and the last one broke the "add task" input in some
+           columns on top of that. None of it could be visually verified
+           in this environment (no browser/devtools access), so rather
+           than keep guessing blind at HA's internal card-layout mechanics,
+           this reverts cleanly to the plain, known-working layout from
+           before that attempt. The toolbar again simply scrolls away with
+           the rest of the board's content - see the README's "Known
+           limitations" section.
         */
-        :host { display: flex; flex-direction: column; height: 100%; }
-        ha-card {
-          display: flex;
-          flex-direction: column;
-          flex: 1 1 auto;
-          min-height: 0;
-          padding: 12px;
-        }
+        :host { display: block; }
+        ha-card { padding: 12px; }
         .toolbar {
           display: flex;
           align-items: center;
@@ -196,15 +186,12 @@ class JiraBoardCard extends HTMLElement {
           margin-bottom: 10px;
           font-size: 0.9em;
           color: var(--primary-text-color);
-          flex: 0 0 auto;
         }
         .toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
         .board {
           display: flex;
           gap: 14px;
-          overflow: auto;
-          flex: 1 1 auto;
-          min-height: 0;
+          overflow-x: auto;
         }
         .lane { margin-bottom: 18px; }
         .lane-title {
