@@ -3,10 +3,11 @@
   "name": "Jira Board",
   "codeowners": ["@skornehl"],
   "config_flow": true,
+  "dependencies": ["http"],
   "documentation": "https://github.com/skornehl/ha-jira-board",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/skornehl/ha-jira-board/issues",
   "requirements": [],
-  "version": "1.12.2"
+  "version": "1.12.3"
 }
