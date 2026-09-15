@@ -89,7 +89,13 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   across lanes. Epics get a lane even with zero cards currently on the
   board (e.g. a freshly created one) - the integration fetches the full
   Epic list for the configured project(s) separately, not just the ones
-  inferable from issues actually on screen.
+  inferable from issues actually on screen. Click a lane's title to
+  collapse/expand it (shows its card count either way) - remembered per
+  card instance the same way as the toggle and project filter below.
+- **Priority and due date** show directly on each card: the issue's own
+  priority icon next to its key, and (if set) its due date, in red once
+  it's overdue. Both are read-only here - see the details popup below to
+  see the full set of fields Jira has for an issue.
 - **Project filter** dropdown, defaulting to the `project`/`projects`
   config above. Set a different default per dashboard tab to get one board
   per project.
@@ -97,9 +103,9 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   text). In Group by Epic view, a lane only stays visible if at least one
   of its cards matches - the Epic itself doesn't need to match, only
   something inside it. Not persisted across reloads on purpose.
-- The Epic toggle and the project filter are **remembered** across page
-  reloads and HA restarts (`localStorage`, scoped per card instance); the
-  search box intentionally isn't.
+- The Epic toggle, the project filter, and which lanes are collapsed are
+  all **remembered** across page reloads and HA restarts (`localStorage`,
+  scoped per card instance); the search box intentionally isn't.
 - **Click a card** to open a details popup - summary, status, project,
   priority, assignee, reporter, labels, created/updated dates, and the
   full description (rendered the same as Jira shows it), plus a link to
@@ -162,10 +168,10 @@ currently a fork-it-yourself change, not a config option.
   way. Something in HA's own card-wrapper layout (outside this card's own
   shadow DOM, so unreachable from its CSS) appears to block
   `position: sticky` regardless of view type - not investigated further.
-- No sync of summary/description edits after creation, no due dates -
-  status/column only. The details popup can *show* description, priority,
-  assignee, reporter and labels (read-only, fetched from Jira live), but
-  nothing on the board writes any of those back.
+- No sync of summary/description edits after creation - status/column
+  only. The board can *show* description, priority, due date, assignee,
+  reporter and labels (read-only), but nothing on the board writes any
+  of those back to Jira.
 - `Done` issues older than 14 days drop off the board (`const.py:
   DONE_RETENTION_DAYS`) so it doesn't accumulate forever.
 

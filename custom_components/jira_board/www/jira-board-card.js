@@ -56,6 +56,10 @@ class JiraBoardCard extends HTMLElement {
     const configured = config.projects || (config.project ? [config.project] : null);
     const configDefault = configured && configured.length === 1 ? configured[0] : "__all__";
     this._projectFilter = saved?.projectFilter ?? configDefault;
+    // Which Epic lanes are collapsed (by key) - remembered the same way
+    // as the two above, so a board with many Epics stays the way you left
+    // it across reloads instead of re-expanding everything every time.
+    this._collapsedLanes = new Set(saved?.collapsedLanes || []);
 
     this._dragItem = null;
     this._itemsByEntity = {};
@@ -113,7 +117,11 @@ class JiraBoardCard extends HTMLElement {
     try {
       localStorage.setItem(
         this._storageKey,
-        JSON.stringify({ groupByEpic: this._groupByEpic, projectFilter: this._projectFilter })
+        JSON.stringify({
+          groupByEpic: this._groupByEpic,
+          projectFilter: this._projectFilter,
+          collapsedLanes: [...this._collapsedLanes],
+        })
       );
     } catch (err) {
       // Private browsing / storage disabled / quota full - not worth
@@ -199,6 +207,19 @@ class JiraBoardCard extends HTMLElement {
           margin: 0 0 8px 2px;
           color: var(--primary-text-color);
           font-size: 0.95em;
+          cursor: pointer;
+          user-select: none;
+        }
+        .lane-toggle {
+          display: inline-block;
+          width: 1em;
+          font-size: 0.85em;
+          opacity: 0.6;
+        }
+        .lane-count {
+          font-weight: 400;
+          opacity: 0.6;
+          font-size: 0.9em;
         }
         .column {
           flex: 1 1 0;
@@ -241,6 +262,31 @@ class JiraBoardCard extends HTMLElement {
           font-weight: 600;
           font-size: 0.85em;
           opacity: 0.7;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .card-priority {
+          width: 14px;
+          height: 14px;
+          flex: 0 0 auto;
+        }
+        .card-text {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .card-due {
+          flex: 0 0 auto;
+          font-size: 0.8em;
+          opacity: 0.65;
+          white-space: nowrap;
+        }
+        .card-due.overdue {
+          opacity: 1;
+          color: var(--error-color, #db4437);
+          font-weight: 600;
         }
         .add-item {
           display: flex;
@@ -495,7 +541,23 @@ class JiraBoardCard extends HTMLElement {
       project: meta.project || null,
       epicKey: meta.epic_key || null,
       epicName: meta.epic_name || null,
+      priority: meta.priority || null,
+      priorityIcon: meta.priority_icon || null,
+      dueDate: meta.due_date || null,
     };
+  }
+
+  // "YYYY-MM-DD" (Jira's duedate is a date, no time component) - compared
+  // against local midnight so "due today" never shows as overdue.
+  _isOverdue(dueDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(`${dueDate}T00:00:00`) < today;
+  }
+
+  _formatDueDate(dueDate) {
+    const [y, m, d] = dueDate.split("-");
+    return `${d}.${m}.`;
   }
 
   _allItems() {
@@ -606,13 +668,42 @@ class JiraBoardCard extends HTMLElement {
     for (const [epicKey, epicName] of epics) {
       const lane = document.createElement("div");
       lane.className = "lane";
+      const collapsed = this._collapsedLanes.has(epicKey);
       const title = document.createElement("div");
       title.className = "lane-title";
-      title.textContent = epicKey === NO_EPIC ? "Kein Epic" : `${epicKey}  ${epicName}`;
+      const label = epicKey === NO_EPIC ? "Kein Epic" : `${epicKey}  ${epicName}`;
+      title.innerHTML =
+        `<span class="lane-toggle">${collapsed ? "▶" : "▼"}</span>` +
+        `${this._escapeHtml(label)} ` +
+        `<span class="lane-count">(${this._laneCardCount(epicKey)})</span>`;
+      // The whole title row toggles, not just the little arrow - a bigger,
+      // more forgiving click target, and there's nothing else on it to
+      // conflict with (unlike a card, there's no drag to guard against).
+      title.addEventListener("click", () => {
+        if (collapsed) this._collapsedLanes.delete(epicKey);
+        else this._collapsedLanes.add(epicKey);
+        this._savePersisted();
+        this._renderBoard();
+      });
       lane.appendChild(title);
-      lane.appendChild(this._buildColumnsRow(this._config.columns, epicKey));
+      if (!collapsed) {
+        lane.appendChild(this._buildColumnsRow(this._config.columns, epicKey));
+      }
       this._boardEl.appendChild(lane);
     }
+  }
+
+  // Card count for a lane's header, respecting the current project filter
+  // and search - so a collapsed lane still tells you at a glance whether
+  // it's worth expanding under the active filter, and the count doesn't
+  // lie relative to what expanding it would actually show.
+  _laneCardCount(epicKey) {
+    let count = 0;
+    for (const col of this._config.columns) {
+      const items = this._filterItems(this._itemsByEntity[col.entity] || []);
+      count += items.filter((i) => (i.epicKey || NO_EPIC) === epicKey).length;
+    }
+    return count;
   }
 
   _buildColumnsRow(columns, epicFilter) {
@@ -691,8 +782,18 @@ class JiraBoardCard extends HTMLElement {
       const el = document.createElement("div");
       el.className = "card-item";
       el.draggable = true;
+      const priorityHtml = item.priorityIcon
+        ? `<img class="card-priority" src="${this._escapeHtml(item.priorityIcon)}" ` +
+          `alt="${this._escapeHtml(item.priority || "")}" title="${this._escapeHtml(item.priority || "")}" ` +
+          `onerror="this.remove()" />`
+        : "";
+      const dueHtml = item.dueDate
+        ? `<span class="card-due${this._isOverdue(item.dueDate) ? " overdue" : ""}">` +
+          `${this._formatDueDate(item.dueDate)}</span>`
+        : "";
       el.innerHTML = item.key
-        ? `<div class="card-key">${item.key}</div><div>${item.text}</div>`
+        ? `<div class="card-key">${priorityHtml}${item.key}</div>` +
+          `<div class="card-text">${item.text}${dueHtml}</div>`
         : `<div>${item.text}</div>`;
       // A completed native HTML5 drag normally doesn't also fire a `click`
       // on the source element, but that's an observed browser behavior,
@@ -767,6 +868,14 @@ class JiraBoardCard extends HTMLElement {
       const d = new Date(iso);
       return Number.isNaN(d.getTime()) ? esc(iso) : esc(d.toLocaleString());
     };
+    const fmtDueDate = (dateStr) => {
+      if (!dateStr) return "–";
+      const d = new Date(`${dateStr}T00:00:00`);
+      return Number.isNaN(d.getTime()) ? esc(dateStr) : esc(d.toLocaleDateString());
+    };
+    const priorityHtml = data.priority_icon
+      ? `<img class="card-priority" src="${esc(data.priority_icon)}" alt="" onerror="this.remove()" /> `
+      : "";
     const labels = (data.labels || []).map((l) => `<span>${esc(l)}</span>`).join("");
     // description_html comes straight from Jira's own `renderedFields`
     // (expand=renderedFields on the get_issue call) - already-rendered
@@ -779,9 +888,10 @@ class JiraBoardCard extends HTMLElement {
       <div class="modal-meta">
         <div><span class="label">Status</span>${esc(data.status) || "–"}</div>
         <div><span class="label">Projekt</span>${esc(data.project) || "–"}</div>
-        <div><span class="label">Priorität</span>${esc(data.priority) || "–"}</div>
+        <div><span class="label">Priorität</span>${priorityHtml}${esc(data.priority) || "–"}</div>
         <div><span class="label">Assignee</span>${person(data.assignee)}</div>
         <div><span class="label">Reporter</span>${person(data.reporter)}</div>
+        <div><span class="label">Fällig</span>${fmtDueDate(data.due_date)}</div>
         <div><span class="label">Erstellt</span>${fmtDate(data.created)}</div>
         <div><span class="label">Aktualisiert</span>${fmtDate(data.updated)}</div>
       </div>

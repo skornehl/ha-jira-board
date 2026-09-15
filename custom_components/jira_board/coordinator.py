@@ -12,7 +12,7 @@ from .const import COLUMNS, DOMAIN, DONE_RETENTION_DAYS
 
 _LOGGER = logging.getLogger(__name__)
 
-FIELDS = ["summary", "status", "project", "resolutiondate", "parent"]
+FIELDS = ["summary", "status", "project", "resolutiondate", "parent", "priority", "duedate"]
 EPIC_FIELDS = ["summary"]
 
 
@@ -138,6 +138,8 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
                 epic_key = parent["key"]
                 epic_name = parent["fields"]["summary"]
 
+            priority = issue["fields"].get("priority")
+
             by_column[column].append(
                 {
                     "key": key,
@@ -145,6 +147,11 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
                     "project": issue["fields"]["project"]["key"],
                     "epic_key": epic_key,
                     "epic_name": epic_name,
+                    "priority": priority.get("name") if priority else None,
+                    "priority_icon": priority.get("iconUrl") if priority else None,
+                    # Plain "YYYY-MM-DD", no time component - Jira's duedate
+                    # field is a date, not a datetime.
+                    "due_date": issue["fields"].get("duedate"),
                 }
             )
 

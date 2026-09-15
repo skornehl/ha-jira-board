@@ -182,6 +182,7 @@ class JiraClient:
                 "reporter",
                 "priority",
                 "labels",
+                "duedate",
                 "created",
                 "updated",
             ]
@@ -224,6 +225,7 @@ def format_issue_for_card(issue: dict[str, Any], base_url: str) -> dict[str, Any
         "priority": priority.get("name") if priority else None,
         "priority_icon": priority.get("iconUrl") if priority else None,
         "labels": fields.get("labels") or [],
+        "due_date": fields.get("duedate"),
         "created": fields.get("created"),
         "updated": fields.get("updated"),
         "description_html": rendered.get("description") or "",

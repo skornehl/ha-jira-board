@@ -110,14 +110,17 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
                 summary=f"{i['key']}  {i['summary']}",
                 status=TodoItemStatus.COMPLETED if done else TodoItemStatus.NEEDS_ACTION,
                 # TodoItem has no dedicated field for this, so the frontend
-                # card's extra metadata (project, epic) rides along as a
-                # small JSON blob rather than a plain string - see
-                # jira-board-card.js's "Group by Epic" lanes.
+                # card's extra metadata (project, epic, priority, due date)
+                # rides along as a small JSON blob rather than a plain
+                # string - see jira-board-card.js's "Group by Epic" lanes.
                 description=json.dumps(
                     {
                         "project": i["project"],
                         "epic_key": i.get("epic_key"),
                         "epic_name": i.get("epic_name"),
+                        "priority": i.get("priority"),
+                        "priority_icon": i.get("priority_icon"),
+                        "due_date": i.get("due_date"),
                     }
                 ),
             )
