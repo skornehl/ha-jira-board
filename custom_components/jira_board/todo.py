@@ -183,6 +183,23 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
             if payload.get("project") in self.coordinator.projects:
                 target_project = payload["project"]
             epic_key = payload.get("epic")
+            if epic_key:
+                # An Epic only ever exists in one project (its key's own
+                # prefix, e.g. "FAM-2" -> "FAM") - Jira flatly rejects
+                # creating an issue whose project doesn't match its
+                # parent Epic's project ("must be created in the same
+                # project as the parent"). Typing a card inside a
+                # specific Epic's lane always means "this Epic's
+                # project", regardless of what the board's project
+                # filter happens to be set to - trust the Epic over
+                # `payload["project"]`/default_project whenever they
+                # disagree, rather than let the whole create fail
+                # (found via the "Sina"/FAM-2 epic, 2026-09-15: the
+                # project filter/default was on a different project,
+                # so every card typed into that lane silently failed).
+                epic_project = epic_key.split("-")[0]
+                if epic_project in self.coordinator.projects:
+                    target_project = epic_project
         try:
             new_key = await client.create_issue(target_project, summary, epic_key=epic_key)
         except JiraApiError as err:

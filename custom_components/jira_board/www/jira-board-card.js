@@ -654,9 +654,20 @@ class JiraBoardCard extends HTMLElement {
       // its own configured default_project. Same idea for epic: only a
       // real Epic lane (not "Kein Epic", not the ungrouped view) counts
       // as a hint - typing a card there shouldn't invent a link.
+      //
+      // An Epic lane always wins the project too, even over an explicitly
+      // selected project filter: an Epic only ever exists in one project
+      // (its key's own prefix), and Jira flatly rejects creating an issue
+      // whose project doesn't match its parent Epic's - so typing a card
+      // into e.g. the "Sina" (FAM-2) lane while the filter happens to be
+      // set to a different project used to silently fail every time.
       const payload = {};
-      if (this._projectFilter !== "__all__") payload.project = this._projectFilter;
-      if (epicFilter && epicFilter !== NO_EPIC) payload.epic = epicFilter;
+      if (epicFilter && epicFilter !== NO_EPIC) {
+        payload.epic = epicFilter;
+        payload.project = epicFilter.split("-")[0];
+      } else if (this._projectFilter !== "__all__") {
+        payload.project = this._projectFilter;
+      }
       const data = { entity_id: col.entity, item: text };
       if (Object.keys(payload).length > 0) data.description = JSON.stringify(payload);
       this._hass.callService("todo", "add_item", data);
