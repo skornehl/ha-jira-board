@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurar Jira Board",
+        "data": {
+          "base_url": "URL base de Jira",
+          "email": "Correo electrónico",
+          "api_token": "Token de API"
+        }
+      },
+      "projects": {
+        "title": "Seleccionar proyectos",
+        "description": "¿Qué proyectos de Jira debe seguir el tablero?",
+        "data": {
+          "projects": "Proyectos"
+        }
+      },
+      "default_project": {
+        "title": "Proyecto predeterminado",
+        "description": "¿En qué proyecto deben crearse las tarjetas nuevas creadas directamente en el tablero?",
+        "data": {
+          "default_project": "Proyecto predeterminado"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Error de inicio de sesión - verifica el correo/token",
+      "cannot_connect": "No se pudo conectar con Jira",
+      "no_projects_found": "No se encontraron proyectos de Jira para esta cuenta",
+      "no_projects_selected": "Selecciona al menos un proyecto"
+    },
+    "abort": {
+      "already_configured": "Esta cuenta de Jira ya está configurada"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Jira Board – Credenciales",
+        "description": "Deja el token de API vacío para conservar el actual.",
+        "data": {
+          "base_url": "URL base de Jira",
+          "email": "Correo electrónico",
+          "api_token": "Nuevo token de API (opcional)"
+        }
+      },
+      "projects": {
+        "title": "Jira Board – Cambiar proyectos",
+        "data": {
+          "projects": "Proyectos",
+          "default_project": "Proyecto predeterminado"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Error de inicio de sesión - verifica el correo/token",
+      "cannot_connect": "No se pudo conectar con Jira",
+      "no_projects_found": "No se encontraron proyectos de Jira para esta cuenta",
+      "no_projects_selected": "Selecciona al menos un proyecto",
+      "default_not_in_projects": "El proyecto predeterminado debe ser uno de los proyectos seleccionados"
+    }
+  }
+}
