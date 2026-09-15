@@ -97,21 +97,24 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   on screen at once, and **"Leere Epics ausblenden"** to hide Epics with
   zero matching cards entirely instead of still giving them an empty
   lane.
-- **Priority and due date** show directly on each card: the issue's own
-  priority icon next to its key, and (if set) its due date, in red once
-  it's overdue. Both are read-only here - see the details popup below to
-  see the full set of fields Jira has for an issue.
-- **Project filter** dropdown, defaulting to the `project`/`projects`
-  config above. Set a different default per dashboard tab to get one board
-  per project.
-- **Search box** filters cards live as you type (matches ticket key and
-  text). In Group by Epic view, a lane only stays visible if at least one
-  of its cards matches - the Epic itself doesn't need to match, only
-  something inside it. Not persisted across reloads on purpose.
+- **Priority, due date, assignee and labels** show directly on each card:
+  the issue's own priority icon next to its key, its assignee's avatar,
+  its due date (if set, in red once overdue), and its labels as small
+  chips. All editable from the details popup - see below.
+- **Epic color** - each Epic gets a stable accent color (hashed from its
+  key, purely a client-side visual aid, no Epic-to-color mapping exists
+  in Jira to fetch) on its cards' left border, so a card's Epic is
+  recognisable at a glance even in the *ungrouped* view.
+- **Project, assignee and label filters** in the toolbar, plus the
+  **search box** (matches ticket key and text). In Group by Epic view, a
+  lane only stays visible if at least one of its cards matches any active
+  filter/search - the Epic itself doesn't need to match, only something
+  inside it.
 - The Epic toggle, the project filter, which lanes are collapsed, and
   "Leere Epics ausblenden" are all **remembered** across page reloads and
   HA restarts (`localStorage`, scoped per card instance); the search box
-  intentionally isn't.
+  and the assignee/label filters are intentionally not - "quick look"
+  filters rather than a structural choice about the dashboard tab.
 - **Click a card** to open a details popup - summary, status, project,
   priority, assignee, reporter, labels, due date, created/updated dates,
   and the full description (rendered the same as Jira shows it), plus a
@@ -120,15 +123,16 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   fields the board itself needs), so it's always current. A drag-and-drop
   move doesn't trigger it - only a plain click.
 - **Edit** (✎ button in the popup) lets you change summary, description,
-  priority, and due date right there, written straight back to Jira.
-  Priority is a dropdown of this Jira site's actual configured priorities
-  (fetched live, not a hardcoded guess). The description you see is
-  Jira's own rendered HTML, not the original source - editing converts it
-  to plain text, so rich formatting (bold, links, lists, ...) becomes
-  plain paragraphs *if you actually touch that field*. Only editing the
-  summary/priority/due date leaves the description completely untouched,
-  formatting included - the card only ever re-sends the description if
-  you actually edited it.
+  priority, due date, assignee, and labels right there, written straight
+  back to Jira. Priority and assignee are dropdowns of this Jira site's
+  actual configured priorities/assignable users for that issue's project
+  (fetched live, not a hardcoded guess); labels are a plain comma-
+  separated text field. The description you see is Jira's own rendered
+  HTML, not the original source - editing converts it to plain text, so
+  rich formatting (bold, links, lists, ...) becomes plain paragraphs *if
+  you actually touch that field*. Only editing the other fields leaves
+  the description completely untouched, formatting included - the card
+  only ever re-sends the description if you actually edited it.
 - **Comments** show in the popup, and you can add your own - plain text
   only, no rich-text editor.
 - **"+ Aufgabe hinzufügen"** input at the bottom of every column creates a
@@ -186,10 +190,10 @@ currently a fork-it-yourself change, not a config option.
   way. Something in HA's own card-wrapper layout (outside this card's own
   shadow DOM, so unreachable from its CSS) appears to block
   `position: sticky` regardless of view type - not investigated further.
-- Summary, description, priority and due date can all be edited from the
-  details popup (see Card features above), and you can add a comment -
-  assignee, reporter, and labels are still read-only: shown in the
-  popup, but nothing writes those back to Jira.
+- Summary, description, priority, due date, assignee and labels can all
+  be edited from the details popup (see Card features above), and you
+  can add a comment - reporter is still read-only (Jira itself doesn't
+  let you change who reported an issue after the fact either).
 - `Done` issues older than 14 days drop off the board (`const.py:
   DONE_RETENTION_DAYS`) so it doesn't accumulate forever.
 

@@ -12,7 +12,17 @@ from .const import COLUMNS, DOMAIN, DONE_RETENTION_DAYS
 
 _LOGGER = logging.getLogger(__name__)
 
-FIELDS = ["summary", "status", "project", "resolutiondate", "parent", "priority", "duedate"]
+FIELDS = [
+    "summary",
+    "status",
+    "project",
+    "resolutiondate",
+    "parent",
+    "priority",
+    "duedate",
+    "assignee",
+    "labels",
+]
 EPIC_FIELDS = ["summary"]
 
 
@@ -67,12 +77,13 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
         # enough (one tiny request) not to matter.
         # [{"name": ..., "icon_url": ..., "icon_data": ...}]
         self.all_priorities: list[dict] = []
-        # icon_url -> already-fetched data: URI - see _embed_priority_icons.
-        # Priorities/their icons essentially never change, so this is kept
-        # across polls rather than re-fetched every scan_interval; the
-        # handful of tiny requests needed to populate it only ever happen
-        # once per distinct icon for the lifetime of this coordinator.
-        self._priority_icon_cache: dict[str, str] = {}
+        # url -> already-fetched data: URI - see _embed_asset. Shared by
+        # priority icons and assignee avatars; kept across polls rather
+        # than re-fetched every scan_interval since both are effectively
+        # static per URL (a priority's icon never changes; a person's
+        # avatar essentially never does either) - each distinct asset is
+        # only ever actually fetched once for the coordinator's lifetime.
+        self._asset_cache: dict[str, str] = {}
 
     def _jql(self) -> str:
         # issuetype != Epic: Epics themselves have no `parent`, so without
@@ -134,6 +145,16 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
             p["name"]: p.get("icon_data") or p.get("icon_url") for p in self.all_priorities
         }
 
+        # Pre-embed each *distinct* assignee avatar once (not per-issue -
+        # a handful of people can easily be assigned dozens of issues
+        # between them), same batching idea as priorities above.
+        avatar_urls = {
+            ((issue["fields"].get("assignee") or {}).get("avatarUrls") or {}).get("48x48")
+            for issue in issues
+        }
+        avatar_urls.discard(None)
+        avatar_data_by_url = {url: await self._embed_asset(url) for url in avatar_urls}
+
         by_column: dict[str, list[dict]] = {c: [] for c in COLUMNS}
         seen: set[str] = set()
         for issue in issues:
@@ -167,6 +188,10 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
 
             priority = issue["fields"].get("priority")
             priority_name = priority.get("name") if priority else None
+            assignee = issue["fields"].get("assignee")
+            assignee_avatar_url = (
+                (assignee.get("avatarUrls") or {}).get("48x48") if assignee else None
+            )
 
             by_column[column].append(
                 {
@@ -177,13 +202,15 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
                     "epic_name": epic_name,
                     "priority": priority_name,
                     # Embedded data: URI (falls back to the plain hotlink
-                    # URL if embedding it failed) - see
-                    # _embed_priority_icons for why this isn't simply
-                    # priority["iconUrl"] anymore.
+                    # URL if embedding it failed) - see _embed_asset for
+                    # why this isn't simply priority["iconUrl"] anymore.
                     "priority_icon": priority_icon_by_name.get(priority_name),
                     # Plain "YYYY-MM-DD", no time component - Jira's duedate
                     # field is a date, not a datetime.
                     "due_date": issue["fields"].get("duedate"),
+                    "assignee_name": assignee.get("displayName") if assignee else None,
+                    "assignee_avatar": avatar_data_by_url.get(assignee_avatar_url),
+                    "labels": issue["fields"].get("labels") or [],
                 }
             )
 
@@ -195,40 +222,39 @@ class JiraBoardCoordinator(DataUpdateCoordinator[dict[str, list[dict]]]):
 
         return by_column
 
-    async def _embed_priority_icons(self, priorities: list[dict]) -> list[dict]:
-        """Replace each priority's hotlinked `icon_url` with a `data:` URI
-        the frontend can embed directly, adding `icon_data`.
+    async def _embed_asset(self, url: str | None) -> str | None:
+        """Fetch `url` (a priority icon, an assignee's avatar, ...) once
+        and return it as a `data:` URI the frontend can embed directly,
+        instead of the browser hotlinking it.
 
-        Fetching a priority icon's URL directly from the browser (a plain
-        <img src="https://...">) turned out unreliable in the wild: it
-        works from this integration's own network path every time, but a
-        real browser loading the exact same URL cross-origin was observed
-        to silently fail (no error surfaced anywhere reachable - the
-        icon just never rendered, removed by its own onerror handler).
-        Embedding it here, where fetching it demonstrably works, avoids
-        the client's network path (ad-blocker, browser extension,
-        DNS/firewall filtering, ...) mattering at all. Cached by URL
-        across polls in self._priority_icon_cache since priorities/their
-        icons essentially never change - each distinct icon is only ever
-        actually fetched once for the coordinator's lifetime.
+        Hotlinking these turned out unreliable in the wild: this
+        integration's own network path always succeeds, but a real
+        browser loading the exact same URL cross-origin was observed to
+        silently fail (no error surfaced anywhere reachable - the image
+        just never rendered, removed by its own onerror handler) -
+        something about that client's own network path (ad-blocker,
+        browser extension, DNS/firewall filtering) blocking it, not
+        anything fixable from the frontend side. Embedding it here, where
+        fetching it demonstrably works, sidesteps the problem entirely.
+        Falls back to the original URL if embedding it fails (e.g. this
+        specific asset 404s) - not worse than the old hotlinking behavior
+        in that case, just doesn't fix it either.
         """
+        if not url:
+            return None
+        if url not in self._asset_cache:
+            try:
+                self._asset_cache[url] = await self.client.fetch_asset_data_uri(url)
+            except JiraApiError as err:
+                _LOGGER.debug("Could not embed asset %s, falling back to hotlink: %s", url, err)
+                return url
+        return self._asset_cache[url]
+
+    async def _embed_priority_icons(self, priorities: list[dict]) -> list[dict]:
+        """Add `icon_data` (see _embed_asset) to each priority."""
         for p in priorities:
-            icon_url = p.get("icon_url")
-            if not icon_url:
-                continue
-            if icon_url not in self._priority_icon_cache:
-                try:
-                    self._priority_icon_cache[icon_url] = await self.client.fetch_asset_data_uri(
-                        icon_url
-                    )
-                except JiraApiError as err:
-                    _LOGGER.debug(
-                        "Could not embed priority icon %s, falling back to hotlink: %s",
-                        icon_url,
-                        err,
-                    )
-                    continue
-            p["icon_data"] = self._priority_icon_cache[icon_url]
+            if p.get("icon_url"):
+                p["icon_data"] = await self._embed_asset(p["icon_url"])
         return priorities
 
     @staticmethod

@@ -46,6 +46,8 @@ ATTR_DESCRIPTION = "description"
 ATTR_COMMENT = "comment"
 ATTR_PRIORITY = "priority"
 ATTR_DUE_DATE = "due_date"
+ATTR_ASSIGNEE_ACCOUNT_ID = "assignee_account_id"
+ATTR_LABELS = "labels"
 GET_ISSUE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ISSUE_KEY): cv.string,
@@ -67,6 +69,8 @@ UPDATE_ISSUE_SCHEMA = vol.Schema(
         # update_issue's docstring.
         vol.Optional(ATTR_PRIORITY): cv.string,
         vol.Optional(ATTR_DUE_DATE): cv.string,
+        vol.Optional(ATTR_ASSIGNEE_ACCOUNT_ID): cv.string,
+        vol.Optional(ATTR_LABELS): [cv.string],
     }
 )
 ADD_COMMENT_SCHEMA = vol.Schema(
@@ -84,7 +88,7 @@ ADD_COMMENT_SCHEMA = vol.Schema(
 # serving a stale cached copy despite cache_headers=False below (that flag
 # only affects HA's own response headers, not whatever caching heuristics
 # the browser decides to apply on its own).
-CARD_VERSION = "22"
+CARD_VERSION = "24"
 CARD_URL_PATH = f"/{DOMAIN}_static/jira-board-card.js"
 
 
@@ -164,12 +168,47 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         result = format_issue_for_card(issue, coordinator.client.base_url)
         # Swap the hotlinked priority icon URL for the coordinator's
         # already-embedded data: URI when available - see coordinator.py's
-        # _embed_priority_icons docstring for why the board's cards don't
-        # hotlink it either.
+        # _embed_asset docstring for why the board's cards don't hotlink
+        # it either.
         for p in coordinator.all_priorities:
             if p["name"] == result.get("priority") and p.get("icon_data"):
                 result["priority_icon"] = p["icon_data"]
                 break
+        # Same embed-not-hotlink treatment for assignee/reporter avatars -
+        # format_issue_for_card's _person() hands back the raw hotlinked
+        # avatarUrls straight from Jira, since it has no access to the
+        # coordinator's asset cache (pure data reshaping, no API calls of
+        # its own) - swap them here instead, same as priority_icon above.
+        for person_key in ("assignee", "reporter"):
+            person = result.get(person_key)
+            if person and person.get("avatar"):
+                person["avatar"] = await coordinator._embed_asset(person["avatar"])
+        # Fetched fresh per popup-open rather than cached on the
+        # coordinator like all_epics/all_priorities: unlike those, "who
+        # can be assigned" is per-project, not board-wide, and only ever
+        # needed while the edit form's assignee dropdown is actually open
+        # - not worth carrying on every poll for something used this
+        # rarely.
+        try:
+            assignable = await coordinator.client.list_assignable_users(result["project"])
+            result["assignable_users"] = [
+                {
+                    "account_id": u["account_id"],
+                    "name": u["name"],
+                    # Same embed-not-hotlink treatment as everything else
+                    # image-shaped (coordinator.py's _embed_asset).
+                    "avatar": await coordinator._embed_asset(u["avatar_url"]),
+                }
+                for u in assignable
+            ]
+        except JiraApiError as err:
+            _LOGGER.warning(
+                "Could not fetch assignable users for %s: %s - edit popup's assignee "
+                "dropdown will just show the issue's current assignee",
+                result["project"],
+                err,
+            )
+            result["assignable_users"] = []
         return result
 
     async def _async_update_issue(call: ServiceCall) -> None:
@@ -182,6 +221,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                 description=call.data.get(ATTR_DESCRIPTION),
                 priority=call.data.get(ATTR_PRIORITY),
                 due_date=call.data.get(ATTR_DUE_DATE),
+                assignee_account_id=call.data.get(ATTR_ASSIGNEE_ACCOUNT_ID),
+                labels=call.data.get(ATTR_LABELS),
             )
         except JiraApiError as err:
             raise HomeAssistantError(f"Could not update {issue_key}: {err}") from err

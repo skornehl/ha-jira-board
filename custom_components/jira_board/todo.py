@@ -129,6 +129,9 @@ class JiraBoardColumn(CoordinatorEntity[JiraBoardCoordinator], TodoListEntity):
                         "priority": i.get("priority"),
                         "priority_icon": i.get("priority_icon"),
                         "due_date": i.get("due_date"),
+                        "assignee_name": i.get("assignee_name"),
+                        "assignee_avatar": i.get("assignee_avatar"),
+                        "labels": i.get("labels") or [],
                     }
                 ),
             )

@@ -71,8 +71,12 @@ class JiraBoardCard extends HTMLElement {
     this._itemsByEntity = {};
     // Deliberately not persisted (unlike groupByEpic/projectFilter above) -
     // a stale search term silently still filtering the board after a
-    // reload would be far more confusing than useful.
+    // reload would be far more confusing than useful. Same reasoning
+    // extended to these two: a "quick look" filter, not a structural
+    // choice about the dashboard tab like the project filter is.
     this._searchQuery = "";
+    this._assigneeFilter = "__all__";
+    this._labelFilter = "__all__";
     this._render();
   }
 
@@ -196,6 +200,7 @@ class JiraBoardCard extends HTMLElement {
         ha-card { padding: 12px; }
         .toolbar {
           display: flex;
+          flex-wrap: wrap;
           align-items: center;
           gap: 8px;
           margin-bottom: 10px;
@@ -283,8 +288,21 @@ class JiraBoardCard extends HTMLElement {
         .card-top {
           display: flex;
           align-items: center;
-          gap: 5px;
+          justify-content: space-between;
           margin-bottom: 2px;
+        }
+        .card-top-left {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          min-width: 0;
+        }
+        .card-avatar {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          flex: 0 0 auto;
+          margin-left: 6px;
         }
         .card-key {
           font-weight: 600;
@@ -331,6 +349,19 @@ class JiraBoardCard extends HTMLElement {
           opacity: 1;
           color: var(--error-color, #db4437);
           font-weight: 600;
+        }
+        .card-labels {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+          margin-top: 4px;
+        }
+        .card-labels span {
+          background: var(--secondary-background-color, #eee);
+          border-radius: 4px;
+          padding: 1px 6px;
+          font-size: 0.75em;
+          opacity: 0.85;
         }
         .add-item {
           display: flex;
@@ -578,6 +609,17 @@ class JiraBoardCard extends HTMLElement {
             Projekt:
             <select class="project-filter"><option value="__all__">Alle</option></select>
           </label>
+          <label>
+            Zugewiesen:
+            <select class="assignee-filter">
+              <option value="__all__">Alle</option>
+              <option value="__unassigned__">Nicht zugewiesen</option>
+            </select>
+          </label>
+          <label>
+            Label:
+            <select class="label-filter"><option value="__all__">Alle</option></select>
+          </label>
           <input type="text" class="search-filter" placeholder="Suchen …" />
         </div>
         <div class="board"></div>
@@ -620,6 +662,18 @@ class JiraBoardCard extends HTMLElement {
     this._projectSelectEl.addEventListener("change", (e) => {
       this._projectFilter = e.target.value;
       this._savePersisted();
+      this._renderBoard();
+    });
+    // Assignee/label filters aren't persisted (see setConfig) - just
+    // update in-memory state and re-render, same as the search box.
+    this._assigneeSelectEl = root.querySelector(".assignee-filter");
+    this._assigneeSelectEl.addEventListener("change", (e) => {
+      this._assigneeFilter = e.target.value;
+      this._renderBoard();
+    });
+    this._labelSelectEl = root.querySelector(".label-filter");
+    this._labelSelectEl.addEventListener("change", (e) => {
+      this._labelFilter = e.target.value;
       this._renderBoard();
     });
     // Live/dynamic: filters as you type, no debounce - _renderBoard() only
@@ -692,6 +746,8 @@ class JiraBoardCard extends HTMLElement {
         }
       }
       this._updateProjectOptions();
+      this._updateAssigneeOptions();
+      this._updateLabelOptions();
       this._renderBoard();
     } finally {
       this._fetching = false;
@@ -732,6 +788,9 @@ class JiraBoardCard extends HTMLElement {
       priority: meta.priority || null,
       priorityIcon: meta.priority_icon || null,
       dueDate: meta.due_date || null,
+      assigneeName: meta.assignee_name || null,
+      assigneeAvatar: meta.assignee_avatar || null,
+      labels: meta.labels || [],
     };
   }
 
@@ -746,6 +805,23 @@ class JiraBoardCard extends HTMLElement {
   _formatDueDate(dueDate) {
     const [y, m, d] = dueDate.split("-");
     return `${d}.${m}.`;
+  }
+
+  // A stable color per Epic key, hashed rather than assigned - there's no
+  // Epic-to-color mapping in Jira to fetch, so this only ever needs to
+  // be consistent *within this browser session* (the same key always
+  // hashes to the same palette entry), not tied to anything server-side.
+  _epicColor(epicKey) {
+    if (!epicKey) return null;
+    const palette = [
+      "#e57373", "#64b5f6", "#81c784", "#ffb74d", "#ba68c8",
+      "#4db6ac", "#f06292", "#a1887f", "#90a4ae", "#dce775",
+    ];
+    let hash = 0;
+    for (let i = 0; i < epicKey.length; i++) {
+      hash = (hash * 31 + epicKey.charCodeAt(i)) >>> 0;
+    }
+    return palette[hash % palette.length];
   }
 
   _allItems() {
@@ -776,6 +852,54 @@ class JiraBoardCard extends HTMLElement {
     this._projectSelectEl.value = current;
   }
 
+  // Same "keep the current selection even if it isn't in the freshly-
+  // seen set right now" idea as _updateProjectOptions - a person/label
+  // filtered on could briefly have zero matching cards (e.g. right after
+  // a move) without the dropdown silently resetting itself.
+  _updateAssigneeOptions() {
+    if (!this._assigneeSelectEl) return;
+    const names = [...new Set(this._allItems().map((i) => i.assigneeName).filter(Boolean))].sort();
+    const current = this._assigneeFilter;
+    this._assigneeSelectEl.innerHTML =
+      `<option value="__all__">Alle</option>` +
+      `<option value="__unassigned__">Nicht zugewiesen</option>` +
+      names.map((n) => `<option value="${this._escapeHtml(n)}">${this._escapeHtml(n)}</option>`).join("");
+    if (![...this._assigneeSelectEl.options].some((o) => o.value === current)) {
+      const opt = document.createElement("option");
+      opt.value = current;
+      opt.textContent = current;
+      this._assigneeSelectEl.appendChild(opt);
+    }
+    this._assigneeSelectEl.value = current;
+  }
+
+  _updateLabelOptions() {
+    if (!this._labelSelectEl) return;
+    const labels = [...new Set(this._allItems().flatMap((i) => i.labels))].sort();
+    const current = this._labelFilter;
+    this._labelSelectEl.innerHTML =
+      `<option value="__all__">Alle</option>` +
+      labels.map((l) => `<option value="${this._escapeHtml(l)}">${this._escapeHtml(l)}</option>`).join("");
+    if (![...this._labelSelectEl.options].some((o) => o.value === current)) {
+      const opt = document.createElement("option");
+      opt.value = current;
+      opt.textContent = current;
+      this._labelSelectEl.appendChild(opt);
+    }
+    this._labelSelectEl.value = current;
+  }
+
+  _matchesAssignee(item) {
+    if (this._assigneeFilter === "__all__") return true;
+    if (this._assigneeFilter === "__unassigned__") return !item.assigneeName;
+    return item.assigneeName === this._assigneeFilter;
+  }
+
+  _matchesLabel(item) {
+    if (this._labelFilter === "__all__") return true;
+    return item.labels.includes(this._labelFilter);
+  }
+
   _filterByProject(items) {
     if (this._projectFilter === "__all__") return items;
     return items.filter((i) => i.project === this._projectFilter);
@@ -794,7 +918,10 @@ class JiraBoardCard extends HTMLElement {
   // project dropdown's own option list (_updateProjectOptions -> _allItems)
   // must stay unaffected by what's currently typed into the search box.
   _filterItems(items) {
-    return this._filterByProject(items).filter((i) => this._matchesSearch(i));
+    return this._filterByProject(items)
+      .filter((i) => this._matchesAssignee(i))
+      .filter((i) => this._matchesLabel(i))
+      .filter((i) => this._matchesSearch(i));
   }
 
   // ---- rendering -------------------------------------------------------
@@ -985,14 +1112,35 @@ class JiraBoardCard extends HTMLElement {
           `alt="${this._escapeHtml(item.priority || "")}" title="${this._escapeHtml(item.priority || "")}" ` +
           `onerror="this.remove()" />`
         : "";
+      const avatarHtml = item.assigneeAvatar
+        ? `<img class="card-avatar" src="${this._escapeHtml(item.assigneeAvatar)}" ` +
+          `alt="${this._escapeHtml(item.assigneeName || "")}" title="${this._escapeHtml(item.assigneeName || "")}" ` +
+          `onerror="this.remove()" />`
+        : "";
       const dueHtml = item.dueDate
         ? `<span class="card-due${this._isOverdue(item.dueDate) ? " overdue" : ""}">` +
           `${this._formatDueDate(item.dueDate)}</span>`
         : "";
+      const labelsHtml = item.labels.length
+        ? `<div class="card-labels">${item.labels
+            .map((l) => `<span>${this._escapeHtml(l)}</span>`)
+            .join("")}</div>`
+        : "";
       el.innerHTML = item.key
-        ? `<div class="card-top">${priorityHtml}<div class="card-key">${item.key}</div></div>` +
-          `<div class="card-text">${item.text}${dueHtml}</div>`
+        ? `<div class="card-top">` +
+          `<span class="card-top-left">${priorityHtml}<div class="card-key">${item.key}</div></span>` +
+          `${avatarHtml}</div>` +
+          `<div class="card-text">${item.text}${dueHtml}</div>${labelsHtml}`
         : `<div>${item.text}</div>`;
+      // A stable accent color per Epic (hashed from its key, not a
+      // hardcoded palette lookup - no Epic-to-color mapping exists in
+      // Jira to fetch, this is purely a client-side visual aid) so a
+      // card's Epic is recognisable at a glance even in the *ungrouped*
+      // view, where "Group by Epic"'s lanes aren't there to separate
+      // them visually. Falls back to the card's normal default color if
+      // it has no Epic at all.
+      const epicColor = this._epicColor(item.epicKey);
+      if (epicColor) el.style.borderLeftColor = epicColor;
       // A completed native HTML5 drag normally doesn't also fire a `click`
       // on the source element, but that's an observed browser behavior,
       // not a spec guarantee - track it explicitly so an edge case can't
@@ -1091,7 +1239,13 @@ class JiraBoardCard extends HTMLElement {
   _renderModalView() {
     const data = this._modalData;
     const esc = (s) => this._escapeHtml(s);
-    const person = (p) => (p?.name ? esc(p.name) : "–");
+    const person = (p) => {
+      if (!p?.name) return "–";
+      const avatar = p.avatar
+        ? `<img class="card-avatar" src="${esc(p.avatar)}" alt="" onerror="this.remove()" /> `
+        : "";
+      return `${avatar}${esc(p.name)}`;
+    };
     const fmtDate = (iso) => {
       if (!iso) return "–";
       const d = new Date(iso);
@@ -1212,6 +1366,29 @@ class JiraBoardCard extends HTMLElement {
       )
       .join("");
 
+    // Assignee dropdown: fetched fresh per popup-open (get_issue's
+    // assignable_users - see __init__.py, project-scoped and only ever
+    // needed while this form is actually open, unlike priorities'
+    // board-wide/always-cached list above). Falls back to just the
+    // issue's current assignee if that fetch failed/came back empty, so
+    // Save can never accidentally unassign something it couldn't
+    // actually offer a real replacement for.
+    const assignableUsers = data.assignable_users || [];
+    const currentAssigneeId = data.assignee?.account_id || "";
+    const assigneeOptionsSource = assignableUsers.length
+      ? assignableUsers
+      : data.assignee
+        ? [{ account_id: currentAssigneeId, name: data.assignee.name }]
+        : [];
+    const assigneeOptions =
+      `<option value=""${currentAssigneeId ? "" : " selected"}>Nicht zugewiesen</option>` +
+      assigneeOptionsSource
+        .map(
+          (u) =>
+            `<option value="${esc(u.account_id)}"${u.account_id === currentAssigneeId ? " selected" : ""}>${esc(u.name)}</option>`
+        )
+        .join("");
+
     this._modalBodyEl.innerHTML = `
       <div class="modal-key">${esc(data.key)}${data.issue_type ? " · " + esc(data.issue_type) : ""}</div>
       <label class="modal-edit-label" for="jbc-edit-summary">Titel</label>
@@ -1222,6 +1399,10 @@ class JiraBoardCard extends HTMLElement {
       <select id="jbc-edit-priority" class="modal-edit-input">${priorityOptions}</select>
       <label class="modal-edit-label" for="jbc-edit-duedate">Fällig</label>
       <input id="jbc-edit-duedate" type="date" class="modal-edit-input" value="${esc(data.due_date || "")}" />
+      <label class="modal-edit-label" for="jbc-edit-assignee">Assignee</label>
+      <select id="jbc-edit-assignee" class="modal-edit-input">${assigneeOptions}</select>
+      <label class="modal-edit-label" for="jbc-edit-labels">Labels (kommagetrennt)</label>
+      <input id="jbc-edit-labels" type="text" class="modal-edit-input" value="${esc((data.labels || []).join(", "))}" />
       <div class="modal-edit-actions">
         <button class="modal-save-btn">Speichern</button>
         <button class="modal-cancel-btn">Abbrechen</button>
@@ -1232,6 +1413,8 @@ class JiraBoardCard extends HTMLElement {
     const descTextarea = this._modalBodyEl.querySelector("#jbc-edit-description");
     const prioritySelect = this._modalBodyEl.querySelector("#jbc-edit-priority");
     const dueDateInput = this._modalBodyEl.querySelector("#jbc-edit-duedate");
+    const assigneeSelect = this._modalBodyEl.querySelector("#jbc-edit-assignee");
+    const labelsInput = this._modalBodyEl.querySelector("#jbc-edit-labels");
     const saveBtn = this._modalBodyEl.querySelector(".modal-save-btn");
     const statusEl = this._modalBodyEl.querySelector(".modal-edit-status");
 
@@ -1249,11 +1432,16 @@ class JiraBoardCard extends HTMLElement {
         issue_key: data.key,
         board_entity_id: this._modalEntityId,
         summary: newSummary,
-        // Unlike description below, priority/due date are plain scalars
-        // with no lossy round-trip risk, so always sent as-is - see
+        // Unlike description below, these carry no lossy round-trip
+        // risk (plain scalars/lists), so always sent as-is - see
         // JiraClient.update_issue's docstring.
         priority: prioritySelect.value,
         due_date: dueDateInput.value,
+        assignee_account_id: assigneeSelect.value,
+        labels: labelsInput.value
+          .split(",")
+          .map((l) => l.trim())
+          .filter(Boolean),
       };
       // Only re-send the description if this textarea was actually
       // touched - see JiraClient.update_issue's docstring for why: the

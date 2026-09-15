@@ -161,6 +161,24 @@ class JiraClient:
         data = await self._request("POST", "/rest/api/3/issue", json=payload)
         return data["key"]
 
+    async def list_assignable_users(self, project_key: str) -> list[dict[str, Any]]:
+        """List users assignable to issues in `project_key`, for the
+        details popup's edit-mode assignee dropdown. Capped at Jira's
+        default maxResults (50) - plenty for how this board is actually
+        used (a personal/family site, not an enterprise instance with
+        hundreds of members)."""
+        data = await self._request(
+            "GET", f"/rest/api/3/user/assignable/search?project={project_key}"
+        )
+        return [
+            {
+                "account_id": u["accountId"],
+                "name": u.get("displayName"),
+                "avatar_url": (u.get("avatarUrls") or {}).get("48x48"),
+            }
+            for u in data
+        ]
+
     async def get_issue(self, issue_key: str) -> dict[str, Any]:
         """Fetch one issue's full details, for the card's click-to-detail popup.
 
@@ -237,9 +255,11 @@ class JiraClient:
         description: str | None = None,
         priority: str | None = None,
         due_date: str | None = None,
+        assignee_account_id: str | None = None,
+        labels: list[str] | None = None,
     ) -> None:
         """Overwrite an issue's summary and (optionally) description,
-        priority, and/or due date.
+        priority, due date, assignee, and/or labels.
 
         `summary` is always sent - the popup's edit form always shows it,
         so there's never a reason to omit it. `description` is only
@@ -250,11 +270,14 @@ class JiraClient:
         (bold, links, lists, ...) into plain paragraphs just because the
         user only meant to fix a typo in the summary - see _text_to_adf.
 
-        `priority` and `due_date` carry no such round-trip risk (both are
-        plain scalars, never lossy) so the popup always sends its current
-        form values for these two regardless of whether they changed.
-        `due_date` is `""` to clear it, a `"YYYY-MM-DD"` string to set it,
-        or omitted/None to leave it untouched.
+        `priority`, `due_date`, `assignee_account_id` and `labels` carry
+        no such round-trip risk (all plain scalars/lists, never lossy) so
+        the popup always sends its current form values for these
+        regardless of whether they changed. `due_date`/`assignee_
+        account_id` are `""` to clear them, or omitted/None to leave them
+        untouched; `labels` is `[]` to clear all of them (replaces the
+        full list, doesn't merge with what's already there), or
+        omitted/None to leave them untouched.
         """
         fields: dict[str, Any] = {"summary": summary}
         if description is not None:
@@ -263,6 +286,10 @@ class JiraClient:
             fields["priority"] = {"name": priority}
         if due_date is not None:
             fields["duedate"] = due_date or None
+        if assignee_account_id is not None:
+            fields["assignee"] = {"accountId": assignee_account_id or None}
+        if labels is not None:
+            fields["labels"] = labels
         await self._request("PUT", f"/rest/api/3/issue/{issue_key}", json={"fields": fields})
 
     async def add_comment(self, issue_key: str, text: str) -> None:
@@ -313,6 +340,11 @@ def format_issue_for_card(issue: dict[str, Any], base_url: str) -> dict[str, Any
         return {
             "name": person.get("displayName"),
             "avatar": (person.get("avatarUrls") or {}).get("48x48"),
+            # Only actually needed for assignee (pre-selecting the edit
+            # popup's dropdown) - included for reporter too since it's
+            # the exact same shape either way and there's no reason to
+            # special-case it out.
+            "account_id": person.get("accountId"),
         }
 
     fields = issue.get("fields", {})

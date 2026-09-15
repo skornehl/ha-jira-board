@@ -28,8 +28,8 @@ update_issue:
   name: Update issue
   description: >-
     Overwrite an issue's summary and (optionally) description, priority,
-    and due date. Used internally by the board card's details popup edit
-    mode.
+    due date, assignee, and labels. Used internally by the board card's
+    details popup edit mode.
   fields:
     issue_key:
       name: Issue key
@@ -75,6 +75,23 @@ update_issue:
       required: false
       selector:
         text:
+    assignee_account_id:
+      name: Assignee
+      description: >-
+        The new assignee's Atlassian account ID. Pass an empty string to
+        unassign.
+      required: false
+      selector:
+        text:
+    labels:
+      name: Labels
+      description: >-
+        The issue's new full set of labels (replaces the existing set
+        entirely, doesn't merge with it). Pass an empty list to clear all
+        labels.
+      required: false
+      selector:
+        object:
 
 add_comment:
   name: Add comment
