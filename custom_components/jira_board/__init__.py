@@ -84,7 +84,7 @@ ADD_COMMENT_SCHEMA = vol.Schema(
 # serving a stale cached copy despite cache_headers=False below (that flag
 # only affects HA's own response headers, not whatever caching heuristics
 # the browser decides to apply on its own).
-CARD_VERSION = "21"
+CARD_VERSION = "22"
 CARD_URL_PATH = f"/{DOMAIN}_static/jira-board-card.js"
 
 

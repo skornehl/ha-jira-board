@@ -91,7 +91,12 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   Epic list for the configured project(s) separately, not just the ones
   inferable from issues actually on screen. Click a lane's title to
   collapse/expand it (shows its card count either way) - remembered per
-  card instance the same way as the toggle and project filter below.
+  card instance the same way as the toggle and project filter below. Two
+  more controls appear next to the toggle once it's on: **"Alle
+  einklappen"/"Alle ausklappen"** to collapse/expand every lane currently
+  on screen at once, and **"Leere Epics ausblenden"** to hide Epics with
+  zero matching cards entirely instead of still giving them an empty
+  lane.
 - **Priority and due date** show directly on each card: the issue's own
   priority icon next to its key, and (if set) its due date, in red once
   it's overdue. Both are read-only here - see the details popup below to
@@ -103,9 +108,10 @@ card_id: my-board            # explicit key for the persisted UI state (see belo
   text). In Group by Epic view, a lane only stays visible if at least one
   of its cards matches - the Epic itself doesn't need to match, only
   something inside it. Not persisted across reloads on purpose.
-- The Epic toggle, the project filter, and which lanes are collapsed are
-  all **remembered** across page reloads and HA restarts (`localStorage`,
-  scoped per card instance); the search box intentionally isn't.
+- The Epic toggle, the project filter, which lanes are collapsed, and
+  "Leere Epics ausblenden" are all **remembered** across page reloads and
+  HA restarts (`localStorage`, scoped per card instance); the search box
+  intentionally isn't.
 - **Click a card** to open a details popup - summary, status, project,
   priority, assignee, reporter, labels, due date, created/updated dates,
   and the full description (rendered the same as Jira shows it), plus a

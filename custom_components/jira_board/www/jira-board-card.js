@@ -60,6 +60,12 @@ class JiraBoardCard extends HTMLElement {
     // as the two above, so a board with many Epics stays the way you left
     // it across reloads instead of re-expanding everything every time.
     this._collapsedLanes = new Set(saved?.collapsedLanes || []);
+    // Hides Epics with zero matching cards entirely, instead of still
+    // giving them an (empty) lane - see _epicsPresent's "even absent
+    // ones" comment for why that's the default; some boards have enough
+    // Epics that always seeing every single one gets in the way more
+    // than it helps.
+    this._hideEmptyEpics = saved?.hideEmptyEpics ?? false;
 
     this._dragItem = null;
     this._itemsByEntity = {};
@@ -121,6 +127,7 @@ class JiraBoardCard extends HTMLElement {
           groupByEpic: this._groupByEpic,
           projectFilter: this._projectFilter,
           collapsedLanes: [...this._collapsedLanes],
+          hideEmptyEpics: this._hideEmptyEpics,
         })
       );
     } catch (err) {
@@ -196,6 +203,21 @@ class JiraBoardCard extends HTMLElement {
           color: var(--primary-text-color);
         }
         .toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+        .epic-controls {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .epic-controls[hidden] { display: none; }
+        .epic-controls button {
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 4px;
+          background: transparent;
+          color: var(--primary-text-color);
+          padding: 3px 8px;
+          font-size: 0.85em;
+          cursor: pointer;
+        }
         .board {
           display: flex;
           gap: 14px;
@@ -544,6 +566,14 @@ class JiraBoardCard extends HTMLElement {
             <input type="checkbox" class="group-toggle" ${this._groupByEpic ? "checked" : ""} />
             Gruppieren nach Epic
           </label>
+          <span class="epic-controls" ${this._groupByEpic ? "" : "hidden"}>
+            <label>
+              <input type="checkbox" class="hide-empty-toggle" ${this._hideEmptyEpics ? "checked" : ""} />
+              Leere Epics ausblenden
+            </label>
+            <button type="button" class="collapse-all-btn">Alle einklappen</button>
+            <button type="button" class="expand-all-btn">Alle ausklappen</button>
+          </span>
           <label>
             Projekt:
             <select class="project-filter"><option value="__all__">Alle</option></select>
@@ -559,8 +589,30 @@ class JiraBoardCard extends HTMLElement {
         </div>
       </div>
     `;
+    const epicControlsEl = root.querySelector(".epic-controls");
     root.querySelector(".group-toggle").addEventListener("change", (e) => {
       this._groupByEpic = e.target.checked;
+      epicControlsEl.hidden = !this._groupByEpic;
+      this._savePersisted();
+      this._renderBoard();
+    });
+    root.querySelector(".hide-empty-toggle").addEventListener("change", (e) => {
+      this._hideEmptyEpics = e.target.checked;
+      this._savePersisted();
+      this._renderBoard();
+    });
+    // Collapse/expand-all act on whatever lanes are *currently* on screen
+    // (respecting the project filter/search/hide-empty state), not every
+    // Epic this board has ever seen - collapsing a lane that isn't shown
+    // right now would just silently do nothing useful, and expand-all
+    // clearing the whole set is simpler and equally correct either way.
+    root.querySelector(".collapse-all-btn").addEventListener("click", () => {
+      for (const [epicKey] of this._epicsPresent()) this._collapsedLanes.add(epicKey);
+      this._savePersisted();
+      this._renderBoard();
+    });
+    root.querySelector(".expand-all-btn").addEventListener("click", () => {
+      this._collapsedLanes.clear();
       this._savePersisted();
       this._renderBoard();
     });
@@ -787,10 +839,12 @@ class JiraBoardCard extends HTMLElement {
     }
     // Merge in empty Epics (no cards on the board at all right now) so
     // they still get a lane, same project filter as everything else - but
-    // only when there's no active search: an Epic with zero cards can
+    // only when there's no active search (an Epic with zero cards can
     // never contain a search hit, so it should disappear like everything
-    // else that doesn't match while searching, not get a free pass.
-    if (!this._searchQuery) {
+    // else that doesn't match while searching, not get a free pass) and
+    // "Leere Epics ausblenden" isn't on (the whole point of that toggle
+    // is to skip exactly this step).
+    if (!this._searchQuery && !this._hideEmptyEpics) {
       for (const epic of this._allEpics()) {
         if (this._projectFilter !== "__all__" && epic.project !== this._projectFilter) continue;
         if (!epics.has(epic.key)) epics.set(epic.key, epic.name);
