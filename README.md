@@ -261,6 +261,9 @@ currently a fork-it-yourself change, not a config option.
   let you change who reported an issue after the fact either).
 - `Done` issues older than 14 days drop off the board (`const.py:
   DONE_RETENTION_DAYS`) so it doesn't accumulate forever.
+- The integration icon (`brand/icon.png`) shows on Home Assistant 2026.3
+  and newer. Older versions (down to the minimum 2026.1) work the same but
+  show the generic placeholder icon.
 
 ## License
 
