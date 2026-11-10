@@ -1,5 +1,11 @@
 # Jira Board for Home Assistant
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5?style=for-the-badge&logo=homeassistantcommunitystore&logoColor=white)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![Release](https://img.shields.io/github/v/release/skornehl/ha-jira-board?style=for-the-badge&color=6366F1)](https://github.com/skornehl/ha-jira-board/releases)
+[![Home Assistant 2026.1+](https://img.shields.io/badge/Home%20Assistant-2026.1%2B-18BCF2?style=for-the-badge&logo=homeassistant&logoColor=white)](https://www.home-assistant.io/)
+[![Checks](https://img.shields.io/github/actions/workflow/status/skornehl/ha-jira-board/validate.yml?branch=master&style=for-the-badge&label=checks)](https://github.com/skornehl/ha-jira-board/actions/workflows/validate.yml)
+[![License](https://img.shields.io/github/license/skornehl/ha-jira-board?style=for-the-badge&color=9333EA)](LICENSE)
+
 A live, drag-and-drop Kanban board for your Jira issues, right inside Home
 Assistant - and it's a genuine **two-way sync**: dragging a card between
 columns really transitions the underlying Jira issue via the REST API, it's
