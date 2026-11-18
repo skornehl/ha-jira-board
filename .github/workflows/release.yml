@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  zip:
+    name: Attach jira_board.zip
+    runs-on: ubuntu-latest
+    # Uploading a release asset needs write access to the repository contents.
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # HACS shows the manifest version, not the tag.
+      - name: Check the manifest version
+        run: |
+          version=$(jq -r .version custom_components/jira_board/manifest.json)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::manifest.json has version $version, the release tag is $TAG"
+            exit 1
+          fi
+
+      # hacs.json sets zip_release: HACS extracts the ZIP into
+      # custom_components/jira_board, so its files go in the root.
+      - name: Build the ZIP
+        working-directory: custom_components/jira_board
+        run: zip -r -X "$RUNNER_TEMP/jira_board.zip" .
+
+      - name: Attach the ZIP to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$RUNNER_TEMP/jira_board.zip" --clobber
